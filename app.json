@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "CS160 Bank",
+    "slug": "onlinebank-cs160",
+    "version": "1.0.0",
+    "orientation": "default",
+    "userInterfaceStyle": "light",
+    "web": {
+      "name": "CS160 Bank",
+      "bundler": "metro"
+    }
+  }
+}
