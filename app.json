@@ -5,9 +5,15 @@
     "version": "1.0.0",
     "orientation": "default",
     "userInterfaceStyle": "light",
+    "scheme": "cs160bank",
     "web": {
       "name": "CS160 Bank",
-      "bundler": "metro"
-    }
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-status-bar"
+    ]
   }
 }
