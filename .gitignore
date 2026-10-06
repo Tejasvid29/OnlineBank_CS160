@@ -5,3 +5,10 @@ web-build/
 .env
 .env.local
 *.log
+
+# Claude / agent tooling
+.claude/
+.agents/
+.mcp.json
+skills-lock.json
+CLAUDE.md
