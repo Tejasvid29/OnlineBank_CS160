@@ -2,8 +2,8 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from supabase import Client
 
-from .config import settings
-from .db import get_supabase
+from config import settings
+from db import get_supabase
 
 app = FastAPI(title="OnlineBank API")
 
