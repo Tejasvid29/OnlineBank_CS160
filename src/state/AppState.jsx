@@ -1,7 +1,7 @@
-import React, { createContext, useContext, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { Platform, useWindowDimensions } from 'react-native';
 import { useRouter } from 'expo-router';
-import { apiConfigured, bankingApi, setAccessToken } from '../services/api';
+import { apiConfigured, bankingApi, clearSession, setSession, storedRefreshToken } from '../services/api';
 import { demoAccounts, demoAtms, demoManagerData, demoNotifications, demoPayments, demoProfile, demoTransactions } from '../data/demo';
 import { money } from '../theme';
 
@@ -9,6 +9,7 @@ const isWeb = Platform.OS === 'web';
 const now = new Date();
 const today = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const unwrap = (value, key) => Array.isArray(value) ? value : value?.[key] || [];
+const validEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 const validMoney = (value, allowZero = false) => /^\d+(?:\.\d{1,2})?$/.test(value.trim()) && (allowZero ? Number(value) >= 0 : Number(value) > 0);
 const validDate = (value) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -34,6 +35,8 @@ export function AppProvider({ children }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [mfaCode, setMfaCode] = useState('');
+  const [registerDraft, setRegisterDraft] = useState({ first_name: '', last_name: '', phone: '', confirm: '' });
+  const [restoring, setRestoring] = useState(apiConfigured);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [profile, setProfile] = useState(apiConfigured ? {} : demoProfile);
@@ -89,12 +92,14 @@ export function AppProvider({ children }) {
 
   async function loadData() {
     if (!apiConfigured) return;
+    // Banking endpoints are optional while the backend is built out; a missing one must not block sign-in.
+    const optional = (request) => request.catch(() => []);
     const [me, accountResult, paymentResult, notificationResult] = await Promise.all([
-      bankingApi.me(), bankingApi.accounts(), bankingApi.payments(), bankingApi.notifications(),
+      bankingApi.me(), optional(bankingApi.accounts()), optional(bankingApi.payments()), optional(bankingApi.notifications()),
     ]);
     const nextProfile = me.profile || me;
     const nextAccounts = unwrap(accountResult, 'accounts');
-    const lists = await Promise.all(nextAccounts.map((account) => bankingApi.transactions(account.id)));
+    const lists = await Promise.all(nextAccounts.map((account) => optional(bankingApi.transactions(account.id))));
     setProfile(nextProfile);
     setProfileDraft({ first_name: nextProfile.first_name || '', last_name: nextProfile.last_name || '', phone: nextProfile.phone || '' });
     setAccounts(nextAccounts);
@@ -114,19 +119,51 @@ export function AppProvider({ children }) {
     try {
       const result = await bankingApi.login(email.trim(), password);
       if (result.mfa_required) setAuthView('mfa');
-      else { setAccessToken(result.access_token || result.token); await loadData(); setSignedIn(true); }
-    } catch (error) { setAccessToken(null); fail(error); }
+      else { await startSession(result); }
+    } catch (error) { clearSession(); fail(error); }
     finally { setBusy(false); }
   }
+
+  async function startSession(result) {
+    setSession(result);
+    await loadData();
+    setPassword(''); setRegisterDraft((current) => ({ ...current, confirm: '' }));
+    setSignedIn(true);
+  }
+
+  async function register() {
+    const { first_name, last_name, phone, confirm } = registerDraft;
+    if (!first_name.trim() || !last_name.trim()) { setNotice('Enter your first and last name.'); return; }
+    if (!validEmail(email.trim())) { setNotice('Enter a valid email address.'); return; }
+    if (phone.trim() && !/^\+?[0-9 ()-]{7,20}$/.test(phone.trim())) { setNotice('Enter a valid phone number.'); return; }
+    if (password.length < 8) { setNotice('Your password must be at least 8 characters.'); return; }
+    if (password !== confirm) { setNotice('The passwords do not match.'); return; }
+    if (!apiConfigured) { setSignedIn(true); return; }
+    setBusy(true); setNotice('');
+    try {
+      const result = await bankingApi.register({ first_name: first_name.trim(), last_name: last_name.trim(), email: email.trim(), phone: phone.trim() || null, password });
+      await startSession(result);
+    } catch (error) { clearSession(); fail(error); }
+    finally { setBusy(false); }
+  }
+
+  // Restore a saved web session on first load: try the refresh token, otherwise show the login screen.
+  useEffect(() => {
+    const token = apiConfigured ? storedRefreshToken() : null;
+    if (!token) { setRestoring(false); return; }
+    bankingApi.refresh(token)
+      .then(startSession)
+      .catch(() => clearSession())
+      .finally(() => setRestoring(false));
+  }, []);
 
   async function verifyMfa() {
     if (!mfaCode.trim()) { setNotice('Enter your verification code.'); return; }
     setBusy(true); setNotice('');
     try {
       const result = await bankingApi.verifyMfa(mfaCode.trim());
-      if (result.access_token || result.token) setAccessToken(result.access_token || result.token);
-      await loadData(); setSignedIn(true);
-    } catch (error) { setAccessToken(null); fail(error); }
+      await startSession(result);
+    } catch (error) { clearSession(); fail(error); }
     finally { setBusy(false); }
   }
 
@@ -140,7 +177,8 @@ export function AppProvider({ children }) {
 
   async function signOut() {
     if (apiConfigured) { try { await bankingApi.logout(); } catch { /* Clear the local session regardless. */ } }
-    setAccessToken(null); setSignedIn(false); setPassword(''); setMfaCode(''); setAuthView('login'); setNotice('');
+    clearSession(); setSignedIn(false); setPassword(''); setMfaCode(''); setAuthView('login'); setNotice('');
+    setProfile(apiConfigured ? {} : demoProfile); setAccounts(apiConfigured ? [] : demoAccounts); setTransactions(apiConfigured ? [] : demoTransactions);
     router.replace('/');
   }
 
@@ -262,7 +300,7 @@ export function AppProvider({ children }) {
   const accountOptions = accounts.filter((item) => item.status !== 'closed').map((item) => ({ value: item.id, label: `${item.account_type} ${item.account_number}` }));
 
   const value = {
-    compact, signedIn, setSignedIn, authView, setAuthView, email, setEmail, password, setPassword, mfaCode, setMfaCode,
+    compact, signedIn, setSignedIn, restoring, registerDraft, setRegisterDraft, register, authView, setAuthView, email, setEmail, password, setPassword, mfaCode, setMfaCode,
     busy, notice, setNotice, profile, setProfile, accounts, setAccounts, transactions, setTransactions, payments, setPayments,
     notifications, setNotifications, selectedAccount, setSelectedAccount, showCreateAccount, setShowCreateAccount,
     newAccountType, setNewAccountType, newAccountDeposit, setNewAccountDeposit, pendingCloseId, setPendingCloseId,

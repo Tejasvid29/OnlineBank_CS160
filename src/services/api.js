@@ -1,8 +1,17 @@
 const baseUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '') || '';
 let accessToken = null;
+const REFRESH_KEY = 'bank_refresh_token';
+
+// The refresh token survives page reloads on web only; native sessions stay in memory.
+const storage = typeof localStorage !== 'undefined' ? localStorage : null;
+const readRefreshToken = () => { try { return storage?.getItem(REFRESH_KEY) || null; } catch { return null; } };
+const writeRefreshToken = (token) => { try { token ? storage?.setItem(REFRESH_KEY, token) : storage?.removeItem(REFRESH_KEY); } catch { /* Storage unavailable. */ } };
 
 export const apiConfigured = Boolean(baseUrl);
 export const setAccessToken = (token) => { accessToken = token; };
+export const setSession = (session) => { accessToken = session?.access_token || null; writeRefreshToken(session?.refresh_token || null); };
+export const clearSession = () => setSession(null);
+export const storedRefreshToken = readRefreshToken;
 
 export async function api(path, options = {}) {
   if (!baseUrl) throw new Error('API URL is not configured.');
@@ -28,6 +37,8 @@ export async function api(path, options = {}) {
 
 export const bankingApi = {
   login: (email, password) => api('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
+  register: (payload) => api('/auth/register', { method: 'POST', body: JSON.stringify(payload) }),
+  refresh: (refresh_token) => api('/auth/refresh', { method: 'POST', body: JSON.stringify({ refresh_token }) }),
   me: () => api('/auth/me'),
   logout: () => api('/auth/logout', { method: 'POST' }),
   forgotPassword: (email) => api('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) }),
