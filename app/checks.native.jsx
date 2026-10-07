@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Alert, Image, Linking, Pressable, Text, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { apiConfigured } from '../src/services/api';
-import { colors, money } from '../src/theme';
+import { colors, isActivated, money, titleCase } from '../src/theme';
 import { styles } from '../src/styles/appStyles';
 import { Action, Card, Field, Icon, LinkButton, SectionHeading } from '../src/ui/primitives';
 import { Select } from '../src/ui/mobilePrimitives';
@@ -19,14 +19,14 @@ const SIDES = {
 // Web keeps app/checks.jsx, which explains that deposits are mobile only.
 export default function Checks() {
   const { accounts, busy, depositError, submitDeposit, setNotice, navigate, setSelectedAccount } = useApp();
-  const open = accounts.filter((item) => item.status !== 'closed');
+  const open = accounts.filter(isActivated);
   const [step, setStep] = useState('details');
   const [accountId, setAccountId] = useState(open[0]?.id || '');
   const [amount, setAmount] = useState('');
   const [photos, setPhotos] = useState({ front: null, back: null });
   const [cameraBlocked, setCameraBlocked] = useState(false);
   const account = accounts.find((item) => item.id === accountId);
-  const options = open.map((item) => ({ value: item.id, label: `${item.account_type} ${item.account_number}`, detail: `Available ${money(item.available ?? item.balance)}` }));
+  const options = open.map((item) => ({ value: item.id, label: `${titleCase(item.account_type)} ${item.account_number}`, detail: `Balance ${money(item.balance)}` }));
 
   function reset() { setStep('details'); setAmount(''); setPhotos({ front: null, back: null }); }
 
@@ -62,7 +62,7 @@ export default function Checks() {
   if (step === 'done') return <Card style={[styles.nativeCard, styles.nativeDone]}>
     <View style={styles.nativeDoneIcon}><Icon name="checkmark" size={30} color={colors.green} /></View>
     <Text style={styles.nativeSectionTitle}>Deposit submitted</Text>
-    <Text style={[styles.bodyText, { textAlign: 'center' }]}>{money(Number(amount))} to {account?.account_type}. The deposit shows as pending until the check is reviewed; funds become available after it clears.</Text>
+    <Text style={[styles.bodyText, { textAlign: 'center' }]}>{money(Number(amount))} to {titleCase(account?.account_type)}. The deposit shows as pending until the check is reviewed; funds become available after it clears.</Text>
     <Action onPress={() => { setSelectedAccount(accountId); navigate('/activity'); }} style={styles.nativeFullAction}>View activity</Action>
     <Action variant="secondary" onPress={reset} style={styles.nativeFullAction}>Deposit another check</Action>
   </Card>;
@@ -110,7 +110,7 @@ export default function Checks() {
     </Card>}
 
     {step === 'review' && <Card style={styles.nativeCard}>
-      <View style={styles.nativeReviewRow}><Text style={styles.rowSub}>Deposit to</Text><Text style={styles.rowTitle}>{account?.account_type} {account?.account_number}</Text></View>
+      <View style={styles.nativeReviewRow}><Text style={styles.rowSub}>Deposit to</Text><Text style={styles.rowTitle}>{titleCase(account?.account_type)} {account?.account_number}</Text></View>
       <View style={styles.nativeReviewRow}><Text style={styles.rowSub}>Amount</Text><Text style={styles.rowTitle}>{money(Number(amount))}</Text></View>
       <View style={[styles.nativeRow2, { marginTop: 16, marginBottom: 16 }]}>
         {['front', 'back'].map((name) => <View key={name} style={styles.nativeCell}>

@@ -331,7 +331,7 @@ export function AppProvider({ children }) {
 
   // Check deposit (native). Returns an error message, or '' when the details are valid.
   function depositError(accountId, amount) {
-    if (!accounts.some((item) => item.id === accountId && item.status !== 'closed')) return 'Choose the account to deposit into.';
+    if (!accounts.some((item) => item.id === accountId && isActivated(item))) return 'Choose the account to deposit into.';
     if (!validMoney(amount)) return 'Enter the check amount, greater than $0 with up to two decimal places.';
     return '';
   }

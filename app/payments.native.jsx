@@ -1,6 +1,6 @@
 import React from 'react';
 import { Alert, Text, View } from 'react-native';
-import { dateLabel, money } from '../src/theme';
+import { dateLabel, isActivated, money, titleCase } from '../src/theme';
 import { styles } from '../src/styles/appStyles';
 import { Action, Card, Choice, Field, Icon, LinkButton, SectionHeading } from '../src/ui/primitives';
 import { DateField, Select } from '../src/ui/mobilePrimitives';
@@ -12,7 +12,7 @@ export default function Payments() {
     payee, setPayee, paymentAccount, setPaymentAccount, accounts, paymentAmount, setPaymentAmount,
     paymentDate, setPaymentDate, frequency, setFrequency, submitPayment, busy, payments, cancelPayment,
   } = useApp();
-  const options = accounts.filter((item) => item.status !== 'closed').map((item) => ({ value: item.id, label: `${item.account_type} ${item.account_number}`, detail: `Available ${money(item.available ?? item.balance)}` }));
+  const options = accounts.filter(isActivated).map((item) => ({ value: item.id, label: `${titleCase(item.account_type)} ${item.account_number}`, detail: `Balance ${money(item.balance)}` }));
   const fromId = paymentAccount || accounts[0]?.id;
   const source = accounts.find((item) => item.id === fromId);
   const today = new Date();
@@ -26,7 +26,7 @@ export default function Payments() {
     <Card style={styles.nativeCard}>
       <Field label="Payee" value={payee} onChangeText={setPayee} placeholder="Business or person" autoCapitalize="words" />
       <Select label="Pay from" value={fromId} options={options} onChange={setPaymentAccount}
-        labelRight={source && <Text style={styles.nativeLabelRight}>Available <Text style={styles.nativeLabelRightStrong}>{money(source.available ?? source.balance)}</Text></Text>} />
+        labelRight={source && <Text style={styles.nativeLabelRight}>Balance <Text style={styles.nativeLabelRightStrong}>{money(source.balance)}</Text></Text>} />
       <Field label="Amount" value={paymentAmount} onChangeText={setPaymentAmount} keyboardType="decimal-pad" placeholder="0.00" />
       <DateField label="Payment date" value={paymentDate} onChange={setPaymentDate} minimumDate={today} />
       <Choice label="Repeat" value={frequency} options={['Once', 'Weekly', 'Monthly'].map((value) => ({ label: value, value }))} onChange={setFrequency} />
