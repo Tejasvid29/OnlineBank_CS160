@@ -13,6 +13,10 @@ export const colors = {
   amber: '#8F5D00',
 };
 
+// Accounts come from the API as lowercase values ('checking', 'activated'); show them capitalized.
+export const titleCase = (value = '') => value.charAt(0).toUpperCase() + value.slice(1);
+export const isActivated = (account) => account.status === 'activated';
+
 export const money = (amount) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
 

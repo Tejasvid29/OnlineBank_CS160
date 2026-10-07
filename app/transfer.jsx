@@ -1,6 +1,6 @@
 import React from 'react';
 import { Text, View } from 'react-native';
-import { money } from '../src/theme';
+import { money, titleCase } from '../src/theme';
 import { styles } from '../src/styles/appStyles';
 import { Action, Card, Choice, Divider, Field, Icon, Notice, SectionHeading } from '../src/ui/primitives';
 import { useApp } from '../src/state/AppState';
@@ -28,8 +28,8 @@ export default function Transfer() {
         <Text style={styles.cardTitle}>Before you transfer</Text>
         <Text style={styles.bodyText}>Transfers between your own accounts update both balances together. Check the amount and destination before submitting.</Text>
         <Divider />
-        <Text style={styles.rowSub}>Available in {accounts.find((item) => item.id === transferFrom)?.account_type || 'selected account'}</Text>
-        <Text style={styles.asideAmount}>{money(accounts.find((item) => item.id === transferFrom)?.available ?? 0)}</Text>
+        <Text style={styles.rowSub}>Available in {titleCase(accounts.find((item) => item.id === transferFrom)?.account_type) || 'selected account'}</Text>
+        <Text style={styles.asideAmount}>{money(accounts.find((item) => item.id === transferFrom)?.balance ?? 0)}</Text>
       </Card>
     </View>
   </>;

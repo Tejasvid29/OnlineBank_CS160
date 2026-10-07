@@ -1,6 +1,6 @@
 import React from 'react';
 import { Text, View } from 'react-native';
-import { money } from '../src/theme';
+import { money, titleCase } from '../src/theme';
 import { styles } from '../src/styles/appStyles';
 import { Action, Card, Choice, Divider, Field, Notice, SectionHeading } from '../src/ui/primitives';
 import { useApp } from '../src/state/AppState';
@@ -32,10 +32,10 @@ export default function Manager() {
       {customers.length ? customers.map((item, index) => <View style={styles.simpleRow} key={item.id || index}><Text style={styles.rowTitle}>{item.first_name} {item.last_name}</Text><Text style={styles.rowSub}>{item.id}</Text></View>) : <Text style={styles.emptyText}>No matching customers.</Text>}
       <Divider />
       <Text style={styles.cardTitle}>Accounts</Text>
-      {managedAccounts.length ? managedAccounts.map((item, index) => <View style={styles.simpleRow} key={item.id || index}><Text style={styles.rowTitle}>{item.account_type} · {item.account_number || item.id}</Text><Text style={styles.rowSub}>{money(item.balance || 0)} · {item.status}</Text></View>) : <Text style={styles.emptyText}>No matching accounts.</Text>}
+      {managedAccounts.length ? managedAccounts.map((item, index) => <View style={styles.simpleRow} key={item.id || index}><Text style={styles.rowTitle}>{titleCase(item.account_type)} · {item.account_number || item.id}</Text><Text style={styles.rowSub}>{money(item.balance || 0)} · {titleCase(item.status)}</Text></View>) : <Text style={styles.emptyText}>No matching accounts.</Text>}
       <Divider />
       <Text style={styles.cardTitle}>Reports</Text>
-      <Choice label="Account status" value={managerReportFilter} options={['All', 'Active', 'Closed'].map((value) => ({ label: value, value }))} onChange={(value) => { setManagerReportFilter(value); setShowManagerReport(false); }} />
+      <Choice label="Account status" value={managerReportFilter} options={['All', 'Activated', 'Deactivated'].map((value) => ({ label: value, value }))} onChange={(value) => { setManagerReportFilter(value); setShowManagerReport(false); }} />
       <Action variant="secondary" onPress={() => setShowManagerReport(true)}>Generate summary</Action>
       {showManagerReport && <View style={styles.reportSummary}>
         <Text style={styles.rowTitle}>{managerReportFilter} accounts: {reportAccounts.length}</Text>
