@@ -179,7 +179,8 @@ export function AppProvider({ children }) {
     if (apiConfigured) { try { await bankingApi.logout(); } catch { /* Clear the local session regardless. */ } }
     clearSession(); setSignedIn(false); setPassword(''); setMfaCode(''); setAuthView('login'); setNotice('');
     setProfile(apiConfigured ? {} : demoProfile); setAccounts(apiConfigured ? [] : demoAccounts); setTransactions(apiConfigured ? [] : demoTransactions);
-    router.replace('/');
+    // Native uses a tab navigator, which handles navigate but not replace.
+    if (isWeb) router.replace('/'); else router.navigate('/');
   }
 
   async function submitTransfer() {

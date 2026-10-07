@@ -3,7 +3,7 @@
     "name": "CS160 Bank",
     "slug": "onlinebank-cs160",
     "version": "1.0.0",
-    "orientation": "default",
+    "orientation": "portrait",
     "userInterfaceStyle": "light",
     "scheme": "cs160bank",
     "web": {
