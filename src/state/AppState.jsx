@@ -42,7 +42,8 @@ export function AppProvider({ children }) {
   const [registerDraft, setRegisterDraft] = useState(emptyRegisterDraft);
   const [restoring, setRestoring] = useState(apiConfigured);
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState('');
+  const [notice, setNoticeText] = useState('');
+  const [noticeKind, setNoticeKind] = useState('error');
   const [profile, setProfile] = useState(apiConfigured ? {} : demoProfile);
   const [accounts, setAccounts] = useState(apiConfigured ? [] : demoAccounts);
   const [transactions, setTransactions] = useState(apiConfigured ? [] : demoTransactions);
@@ -92,6 +93,9 @@ export function AppProvider({ children }) {
     router.push(path);
     if (isWeb) window.scrollTo?.({ top: 0, behavior: 'smooth' });
   }
+
+  // kind is 'error' (default), 'success' or 'info'. Web screens still choose their notice color from the text; the native toast uses kind.
+  function setNotice(text, kind = 'error') { setNoticeText(text); setNoticeKind(kind); }
 
   function fail(error) { setNotice(error?.message || 'Something went wrong. Please try again.'); }
 
@@ -193,7 +197,7 @@ export function AppProvider({ children }) {
   async function resetPassword() {
     if (!email.trim()) { setNotice('Enter your email address.'); return; }
     setBusy(true); setNotice('');
-    try { await bankingApi.forgotPassword(email.trim()); setNotice('If this address is registered, a reset link will be sent.'); }
+    try { await bankingApi.forgotPassword(email.trim()); setNotice('If this address is registered, a reset link will be sent.', 'success'); }
     catch (error) { fail(error); }
     finally { setBusy(false); }
   }
@@ -240,7 +244,7 @@ export function AppProvider({ children }) {
           ...current,
         ]);
       }
-      setTransferAmount(''); setTransferNote(''); setNotice(`Transfer of ${money(amount)} completed.`);
+      setTransferAmount(''); setTransferNote(''); setNotice(`Transfer of ${money(amount)} completed.`, 'success');
     } catch (error) { fail(error); }
     finally { setBusy(false); }
   }
@@ -255,7 +259,7 @@ export function AppProvider({ children }) {
       const payload = { account_id: paymentAccount || accounts[0]?.id, recipient: payee.trim(), amount, next_payment_date: paymentDate, frequency: frequency.toLowerCase() };
       if (apiConfigured) { await bankingApi.createPayment(payload); await loadData(); }
       else setPayments((current) => [{ ...payload, id: `demo-${Date.now()}`, frequency, status: 'Scheduled' }, ...current]);
-      setPayee(''); setPaymentAmount(''); setPaymentDate(''); setNotice('Your payment was scheduled.');
+      setPayee(''); setPaymentAmount(''); setPaymentDate(''); setNotice('Your payment was scheduled.', 'success');
     } catch (error) { fail(error); }
     finally { setBusy(false); }
   }
@@ -265,7 +269,7 @@ export function AppProvider({ children }) {
     try {
       if (apiConfigured) { await bankingApi.cancelPayment(id); await loadData(); }
       else setPayments((current) => current.filter((item) => item.id !== id));
-      setNotice('The scheduled payment was canceled.');
+      setNotice('The scheduled payment was canceled.', 'success');
     } catch (error) { fail(error); }
     finally { setBusy(false); }
   }
@@ -280,7 +284,7 @@ export function AppProvider({ children }) {
         const id = `demo-account-${Date.now()}`;
         setAccounts((current) => [...current, { id, account_type: newAccountType, account_number: `•••• ${String(Date.now()).slice(-4)}`, balance: initialDeposit, available: initialDeposit, status: 'active' }]);
       }
-      setShowCreateAccount(false); setNewAccountDeposit('0'); setNotice('Your account was created.');
+      setShowCreateAccount(false); setNewAccountDeposit('0'); setNotice('Your account was created.', 'success');
     } catch (error) { fail(error); }
     finally { setBusy(false); }
   }
@@ -293,7 +297,7 @@ export function AppProvider({ children }) {
       if (apiConfigured) { await bankingApi.closeAccount(account.id); await loadData(); }
       else setAccounts((current) => current.map((item) => item.id === account.id ? { ...item, status: 'closed' } : item));
       setPendingCloseId(null);
-      setNotice('The account was closed. Its history remains available.');
+      setNotice('The account was closed. Its history remains available.', 'success');
     } catch (error) { fail(error); }
     finally { setBusy(false); }
   }
@@ -301,7 +305,7 @@ export function AppProvider({ children }) {
   async function findAtms() {
     if (!atmSearch.trim()) { setNotice('Enter a city, ZIP code, or address.'); return; }
     setBusy(true); setNotice('');
-    try { if (apiConfigured) setAtms(unwrap(await bankingApi.atms(atmSearch.trim()), 'atms')); else setNotice('Showing sample ATM locations near San Francisco.'); }
+    try { if (apiConfigured) setAtms(unwrap(await bankingApi.atms(atmSearch.trim()), 'atms')); else setNotice('Showing sample ATM locations near San Francisco.', 'info'); }
     catch (error) { fail(error); }
     finally { setBusy(false); }
   }
@@ -312,7 +316,7 @@ export function AppProvider({ children }) {
     try {
       if (apiConfigured) throw new Error('Profile updates need a dedicated backend profile endpoint.');
       setProfile((current) => ({ ...current, ...profileDraft }));
-      setNotice('Your profile was updated.');
+      setNotice('Your profile was updated.', 'success');
     } catch (error) { fail(error); }
     finally { setBusy(false); }
   }
@@ -339,7 +343,7 @@ export function AppProvider({ children }) {
 
   const value = {
     compact, signedIn, setSignedIn, restoring, registerDraft, setRegisterDraft, register, authView, setAuthView, email, setEmail, password, setPassword, mfaCode, setMfaCode,
-    busy, notice, setNotice, profile, setProfile, accounts, setAccounts, transactions, setTransactions, payments, setPayments,
+    busy, notice, noticeKind, setNotice, profile, setProfile, accounts, setAccounts, transactions, setTransactions, payments, setPayments,
     notifications, setNotifications, selectedAccount, setSelectedAccount, paymentAccount, setPaymentAccount, showCreateAccount, setShowCreateAccount,
     newAccountType, setNewAccountType, newAccountDeposit, setNewAccountDeposit, pendingCloseId, setPendingCloseId,
     showNotifications, setShowNotifications, managerData, managerSearch, setManagerSearch, managerReportFilter,

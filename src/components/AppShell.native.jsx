@@ -7,14 +7,15 @@ import { apiConfigured } from '../services/api';
 import { colors, dateLabel } from '../theme';
 import { styles } from '../styles/appStyles';
 import { Icon } from '../ui/primitives';
+import { Toast } from '../ui/mobilePrimitives';
 import { MOBILE_MORE, MOBILE_PAY_NAV, MOBILE_TABS } from '../navigation/nav';
 import { useApp } from '../state/AppState';
 
-// Native app shell: safe-area header, bottom tabs, a "More" sheet and a notifications modal.
+// Native app shell: safe-area header, bottom tabs, a "More" sheet, a notifications modal and the notice toast.
 // Rendered by app/_layout.native.jsx; web keeps AppShell.jsx (header + sidebar + <Slot />).
 export function AppShell() {
   const insets = useSafeAreaInsets();
-  const { profile, unread, setShowNotifications, navigate } = useApp();
+  const { profile, unread, setShowNotifications, navigate, notice, noticeKind, setNotice } = useApp();
   const [showMore, setShowMore] = useState(false);
   const [chromeHeight, setChromeHeight] = useState(0);
 
@@ -47,6 +48,7 @@ export function AppShell() {
       tabBar={() => <TabBar onMore={() => setShowMore(true)} />}
     />
 
+    <Toast text={notice} kind={noticeKind} top={chromeHeight + 8} onHide={() => setNotice('')} />
     <MoreSheet visible={showMore} onClose={() => setShowMore(false)} />
     <NotificationsModal />
   </View>;
