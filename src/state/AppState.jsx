@@ -3,7 +3,7 @@ import { AppState as NativeAppState, Platform, useWindowDimensions } from 'react
 import { useRouter } from 'expo-router';
 import { apiConfigured, bankingApi, clearSession, hasSession, onSessionExpired, refreshSession, sessionExpiresSoon, setSession, storedRefreshToken } from '../services/api';
 import { demoAccounts, demoAtms, demoManagerData, demoNotifications, demoPayments, demoProfile, demoTransactions } from '../data/demo';
-import { money } from '../theme';
+import { isActivated, money, titleCase } from '../theme';
 
 const isWeb = Platform.OS === 'web';
 // Local date as YYYY-MM-DD, computed when needed so an app left open past midnight stays correct.
@@ -59,8 +59,7 @@ export function AppProvider({ children }) {
   const [selectedAccount, setSelectedAccount] = useState('checking');
   const [paymentAccount, setPaymentAccount] = useState('checking');
   const [showCreateAccount, setShowCreateAccount] = useState(false);
-  const [newAccountType, setNewAccountType] = useState('Checking');
-  const [newAccountDeposit, setNewAccountDeposit] = useState('0');
+  const [newAccountType, setNewAccountType] = useState('checking');
   const [pendingCloseId, setPendingCloseId] = useState(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [managerData, setManagerData] = useState(initialManagerData);
@@ -119,10 +118,11 @@ export function AppProvider({ children }) {
     setProfile(nextProfile);
     setProfileDraft({ first_name: nextProfile.first_name || '', last_name: nextProfile.last_name || '', phone: nextProfile.phone || '' });
     setAccounts(nextAccounts);
+    const activeAccounts = nextAccounts.filter(isActivated);
     setSelectedAccount(nextAccounts[0]?.id || 'all');
-    setPaymentAccount(nextAccounts[0]?.id || '');
-    setTransferFrom(nextAccounts[0]?.id || '');
-    setTransferTo(nextAccounts[1]?.id || '');
+    setPaymentAccount(activeAccounts[0]?.id || '');
+    setTransferFrom(activeAccounts[0]?.id || '');
+    setTransferTo(activeAccounts[1]?.id || '');
     setPayments(unwrap(paymentResult, 'payments'));
     setNotifications(unwrap(notificationResult, 'notifications'));
     setTransactions(lists.flatMap((result) => unwrap(result, 'transactions')));
@@ -236,18 +236,18 @@ export function AppProvider({ children }) {
     if (!transferFrom || !transferTo || transferFrom === transferTo) { setNotice('Choose two different accounts.'); return; }
     if (!validMoney(transferAmount)) { setNotice('Enter an amount greater than $0 with up to two decimal places.'); return; }
     const source = accounts.find((item) => item.id === transferFrom);
-    if (source && amount > Number(source.available ?? source.balance)) { setNotice('The source account has insufficient funds.'); return; }
+    if (source && amount > Number(source.balance)) { setNotice('The source account has insufficient funds.'); return; }
     setBusy(true); setNotice('');
     try {
       if (apiConfigured) {
         await bankingApi.transfer({ source_account_id: transferFrom, destination_account_id: transferTo, amount, transfer_type: 'internal', description: transferNote });
         await loadData();
       } else {
-        setAccounts((current) => current.map((account) => account.id === transferFrom ? { ...account, balance: account.balance - amount, available: account.available - amount } : account.id === transferTo ? { ...account, balance: account.balance + amount, available: account.available + amount } : account));
+        setAccounts((current) => current.map((account) => account.id === transferFrom ? { ...account, balance: account.balance - amount } : account.id === transferTo ? { ...account, balance: account.balance + amount } : account));
         const stamp = new Date().toISOString();
         setTransactions((current) => [
-          { id: `demo-out-${stamp}`, account_id: transferFrom, description: `Transfer to ${accounts.find((item) => item.id === transferTo)?.account_type}`, transaction_type: 'Transfer', amount: -amount, created_at: stamp, status: 'Completed' },
-          { id: `demo-in-${stamp}`, account_id: transferTo, description: `Transfer from ${source?.account_type}`, transaction_type: 'Transfer', amount, created_at: stamp, status: 'Completed' },
+          { id: `demo-out-${stamp}`, account_id: transferFrom, description: `Transfer to ${titleCase(accounts.find((item) => item.id === transferTo)?.account_type)}`, transaction_type: 'Transfer', amount: -amount, created_at: stamp, status: 'Completed' },
+          { id: `demo-in-${stamp}`, account_id: transferTo, description: `Transfer from ${titleCase(source?.account_type)}`, transaction_type: 'Transfer', amount, created_at: stamp, status: 'Completed' },
           ...current,
         ]);
       }
@@ -282,16 +282,14 @@ export function AppProvider({ children }) {
   }
 
   async function createAccount() {
-    const initialDeposit = Number(newAccountDeposit);
-    if (!validMoney(newAccountDeposit, true)) { setNotice('Enter a valid initial deposit of $0 or more with up to two decimal places.'); return; }
     setBusy(true); setNotice('');
     try {
-      if (apiConfigured) { await bankingApi.createAccount({ account_type: newAccountType.toLowerCase(), initial_deposit: initialDeposit }); await loadData(); }
+      if (apiConfigured) { await bankingApi.createAccount({ account_type: newAccountType }); await loadData(); }
       else {
         const id = `demo-account-${Date.now()}`;
-        setAccounts((current) => [...current, { id, account_type: newAccountType, account_number: `•••• ${String(Date.now()).slice(-4)}`, balance: initialDeposit, available: initialDeposit, status: 'active' }]);
+        setAccounts((current) => [...current, { id, account_type: newAccountType, account_number: `•••• ${String(Date.now()).slice(-4)}`, balance: 0, status: 'activated' }]);
       }
-      setShowCreateAccount(false); setNewAccountDeposit('0'); setNotice('Your account was created.', 'success');
+      setShowCreateAccount(false); setNotice('Your account was created.', 'success');
     } catch (error) { fail(error); }
     finally { setBusy(false); }
   }
@@ -302,7 +300,7 @@ export function AppProvider({ children }) {
     setBusy(true); setNotice('');
     try {
       if (apiConfigured) { await bankingApi.closeAccount(account.id); await loadData(); }
-      else setAccounts((current) => current.map((item) => item.id === account.id ? { ...item, status: 'closed' } : item));
+      else setAccounts((current) => current.map((item) => item.id === account.id ? { ...item, status: 'deactivated', closed_at: new Date().toISOString() } : item));
       setPendingCloseId(null);
       setNotice('The account was closed. Its history remains available.', 'success');
     } catch (error) { fail(error); }
@@ -387,13 +385,13 @@ export function AppProvider({ children }) {
     }
   }
 
-  const accountOptions = accounts.filter((item) => item.status !== 'closed').map((item) => ({ value: item.id, label: `${item.account_type} ${item.account_number}` }));
+  const accountOptions = accounts.filter(isActivated).map((item) => ({ value: item.id, label: `${titleCase(item.account_type)} ${item.account_number}` }));
 
   const value = {
     compact, signedIn, setSignedIn, restoring, registerDraft, setRegisterDraft, register, authView, setAuthView, email, setEmail, password, setPassword, mfaCode, setMfaCode,
     busy, notice, noticeKind, setNotice, profile, setProfile, accounts, setAccounts, transactions, setTransactions, payments, setPayments,
     notifications, setNotifications, selectedAccount, setSelectedAccount, paymentAccount, setPaymentAccount, showCreateAccount, setShowCreateAccount,
-    newAccountType, setNewAccountType, newAccountDeposit, setNewAccountDeposit, pendingCloseId, setPendingCloseId,
+    newAccountType, setNewAccountType, pendingCloseId, setPendingCloseId,
     showNotifications, setShowNotifications, managerData, managerSearch, setManagerSearch, managerReportFilter,
     setManagerReportFilter, showManagerReport, setShowManagerReport, transferFrom, setTransferFrom, transferTo, setTransferTo,
     transferAmount, setTransferAmount, transferNote, setTransferNote, payee, setPayee, paymentAmount, setPaymentAmount,

@@ -4,8 +4,8 @@ export const demoProfile = {
 };
 
 export const demoAccounts = [
-  { id: 'checking', account_type: 'Total Checking', account_number: '•••• 4821', balance: 8426.72, available: 8426.72, status: 'active' },
-  { id: 'savings', account_type: 'Premier Savings', account_number: '•••• 1904', balance: 21450.00, available: 21450.00, status: 'active' },
+  { id: 'checking', account_type: 'checking', account_number: '•••• 4821', balance: 8426.72, status: 'activated' },
+  { id: 'savings', account_type: 'savings', account_number: '•••• 1904', balance: 21450.00, status: 'activated' },
 ];
 
 export const demoTransactions = [
@@ -40,8 +40,8 @@ export const demoManagerData = {
     { id: 'demo-customer-102', first_name: 'Alex', last_name: 'Morgan' },
   ],
   accounts: [
-    { id: 'demo-account-101', account_type: 'Checking', account_number: '•••• 4821', balance: 8426.72, status: 'active' },
-    { id: 'demo-account-102', account_type: 'Savings', account_number: '•••• 1904', balance: 21450, status: 'active' },
+    { id: 'demo-account-101', account_type: 'checking', account_number: '•••• 4821', balance: 8426.72, status: 'activated' },
+    { id: 'demo-account-102', account_type: 'savings', account_number: '•••• 1904', balance: 21450, status: 'activated' },
   ],
   reports: [],
 };

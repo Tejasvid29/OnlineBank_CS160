@@ -2,12 +2,14 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from supabase import Client
 
+from accounts import router as accounts_router
 from auth import require_role, router as auth_router
 from config import settings
 from db import get_supabase
 
 app = FastAPI(title="OnlineBank API")
 app.include_router(auth_router)
+app.include_router(accounts_router)
 
 app.add_middleware(
     CORSMiddleware,
