@@ -221,7 +221,7 @@ export function AppProvider({ children }) {
     setProfile(apiConfigured ? {} : demoProfile); setAccounts(apiConfigured ? [] : demoAccounts); setTransactions(apiConfigured ? [] : demoTransactions);
     setPayments(apiConfigured ? [] : demoPayments); setNotifications(apiConfigured ? [] : demoNotifications); setShowNotifications(false);
     setManagerData(initialManagerData); setManagerSearch(''); setManagerReportFilter('All'); setShowManagerReport(false);
-    setSelectedAccount('checking'); setPaymentAccount('checking'); setShowCreateAccount(false); setNewAccountType('Checking'); setNewAccountDeposit('0'); setPendingCloseId(null);
+    setSelectedAccount('checking'); setPaymentAccount('checking'); setShowCreateAccount(false); setNewAccountType('checking'); setPendingCloseId(null);
     setTransferFrom('checking'); setTransferTo('savings'); setTransferAmount(''); setTransferNote('');
     setPayee(''); setPaymentAmount(''); setPaymentDate(''); setFrequency('Once');
     setAtmSearch('San Francisco, CA'); setAtms(demoAtms);
