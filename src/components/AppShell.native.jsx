@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { usePathname } from 'expo-router';
 import { Tabs } from 'expo-router/js-tabs';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -16,31 +16,34 @@ export function AppShell() {
   const insets = useSafeAreaInsets();
   const { profile, unread, setShowNotifications, navigate } = useApp();
   const [showMore, setShowMore] = useState(false);
+  const [chromeHeight, setChromeHeight] = useState(0);
 
   return <View style={styles.appShell}>
-    <View style={[styles.nativeHeader, { paddingTop: insets.top + 8 }]}>
-      <Pressable onPress={() => navigate('/')} style={styles.brand}>
-        <View style={styles.brandMark}><Icon name="shield-checkmark" size={20} color={colors.white} /></View>
-        <Text style={styles.brandName}>CS160 Bank</Text>
-      </Pressable>
-      <View style={styles.nativeHeaderRight}>
-        <Pressable accessibilityRole="button" accessibilityLabel={`Notifications, ${unread} unread`} onPress={() => setShowNotifications(true)} style={styles.headerIcon} hitSlop={6}>
-          <Icon name="notifications-outline" size={24} color={colors.ink} />
-          {unread > 0 && <View style={styles.notificationBadge}><Text style={styles.notificationBadgeText}>{unread}</Text></View>}
+    <View onLayout={(event) => setChromeHeight(event.nativeEvent.layout.height)}>
+      <View style={[styles.nativeHeader, { paddingTop: insets.top + 8 }]}>
+        <Pressable onPress={() => navigate('/')} style={styles.brand}>
+          <View style={styles.brandMark}><Icon name="shield-checkmark" size={20} color={colors.white} /></View>
+          <Text style={styles.brandName}>CS160 Bank</Text>
         </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Profile and settings" onPress={() => navigate('/profile')} style={styles.avatar} hitSlop={6}>
-          <Text style={styles.avatarText}>{(profile.first_name || 'U')[0]}</Text>
-        </Pressable>
+        <View style={styles.nativeHeaderRight}>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Notifications, ${unread} unread`} onPress={() => setShowNotifications(true)} style={styles.headerIcon} hitSlop={6}>
+            <Icon name="notifications-outline" size={24} color={colors.ink} />
+            {unread > 0 && <View style={styles.notificationBadge}><Text style={styles.notificationBadgeText}>{unread}</Text></View>}
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Profile and settings" onPress={() => navigate('/profile')} style={styles.avatar} hitSlop={6}>
+            <Text style={styles.avatarText}>{(profile.first_name || 'U')[0]}</Text>
+          </Pressable>
+        </View>
       </View>
-    </View>
 
-    {!apiConfigured && <View style={styles.nativeDemoBar}><Icon name="information-circle-outline" size={16} color="#6B5600" /><Text style={styles.demoText}>Demo mode — sample information; actions stay on this device.</Text></View>}
+      {!apiConfigured && <View style={styles.nativeDemoBar}><Icon name="information-circle-outline" size={16} color="#6B5600" /><Text style={styles.demoText}>Demo mode — sample information; actions stay on this device.</Text></View>}
+    </View>
 
     <Tabs
       initialRouteName="index"
       backBehavior="history"
       screenOptions={{ headerShown: false }}
-      screenLayout={({ route, children }) => <ScreenFrame routeName={route.name}>{children}</ScreenFrame>}
+      screenLayout={({ route, children }) => <ScreenFrame routeName={route.name} keyboardOffset={chromeHeight}>{children}</ScreenFrame>}
       tabBar={() => <TabBar onMore={() => setShowMore(true)} />}
     />
 
@@ -49,25 +52,29 @@ export function AppShell() {
   </View>;
 }
 
-function ScreenFrame({ routeName, children }) {
+// keyboardOffset is the header height above the screen, so KeyboardAvoidingView measures from the right place.
+function ScreenFrame({ routeName, keyboardOffset, children }) {
   const pathname = usePathname();
   const { navigate } = useApp();
-  return <View style={{ flex: 1 }}>
+  return <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={keyboardOffset}>
     {(routeName === 'transfer' || routeName === 'payments') && <View style={styles.nativeSegment}>
       {MOBILE_PAY_NAV.map(([path, label]) => <Pressable key={path} accessibilityRole="tab" accessibilityState={{ selected: pathname === path }} onPress={() => navigate(path)} style={[styles.nativeSegmentItem, pathname === path && styles.choiceActive]}>
         <Text style={[styles.choiceText, pathname === path && styles.choiceTextActive]}>{label}</Text>
       </Pressable>)}
     </View>}
     <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.nativeContent} keyboardShouldPersistTaps="handled">{children}</ScrollView>
-  </View>;
+  </KeyboardAvoidingView>;
 }
 
 function TabBar({ onMore }) {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const { navigate } = useApp();
+  const keyboardOpen = useAndroidKeyboardOpen();
   const inMore = !MOBILE_TABS.some(([, , , paths]) => paths.includes(pathname));
 
+  // Android resizes the window for the keyboard, which would push the tab bar up above it.
+  if (keyboardOpen) return null;
   return <View style={[styles.nativeTabBar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
     {MOBILE_TABS.map(([path, label, icon, paths]) => {
       const active = paths.includes(pathname);
@@ -81,6 +88,17 @@ function TabBar({ onMore }) {
       <Text style={[styles.nativeTabLabel, inMore && styles.nativeTabLabelActive]}>More</Text>
     </Pressable>
   </View>;
+}
+
+function useAndroidKeyboardOpen() {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (Platform.OS !== 'android') return undefined;
+    const show = Keyboard.addListener('keyboardDidShow', () => setOpen(true));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setOpen(false));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
+  return open;
 }
 
 function MoreSheet({ visible, onClose }) {

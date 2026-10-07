@@ -1,13 +1,17 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { Platform, useWindowDimensions } from 'react-native';
+import { AppState as NativeAppState, Platform, useWindowDimensions } from 'react-native';
 import { useRouter } from 'expo-router';
-import { apiConfigured, bankingApi, clearSession, setSession, storedRefreshToken } from '../services/api';
+import { apiConfigured, bankingApi, clearSession, hasSession, onSessionExpired, refreshSession, sessionExpiresSoon, setSession, storedRefreshToken } from '../services/api';
 import { demoAccounts, demoAtms, demoManagerData, demoNotifications, demoPayments, demoProfile, demoTransactions } from '../data/demo';
 import { money } from '../theme';
 
 const isWeb = Platform.OS === 'web';
-const now = new Date();
-const today = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+// Local date as YYYY-MM-DD, computed when needed so an app left open past midnight stays correct.
+const todayString = () => { const now = new Date(); return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
+const emptyRegisterDraft = { first_name: '', last_name: '', phone: '', confirm: '' };
+const initialProfileDraft = apiConfigured ? { first_name: '', last_name: '', phone: '' } : { first_name: demoProfile.first_name, last_name: demoProfile.last_name, phone: demoProfile.phone };
+const initialManagerData = apiConfigured ? { customers: [], accounts: [], reports: [] } : demoManagerData;
+const SESSION_EXPIRED = 'Your session has expired. Please sign in again.';
 const unwrap = (value, key) => Array.isArray(value) ? value : value?.[key] || [];
 const validEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 const validMoney = (value, allowZero = false) => /^\d+(?:\.\d{1,2})?$/.test(value.trim()) && (allowZero ? Number(value) >= 0 : Number(value) > 0);
@@ -35,7 +39,7 @@ export function AppProvider({ children }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [mfaCode, setMfaCode] = useState('');
-  const [registerDraft, setRegisterDraft] = useState({ first_name: '', last_name: '', phone: '', confirm: '' });
+  const [registerDraft, setRegisterDraft] = useState(emptyRegisterDraft);
   const [restoring, setRestoring] = useState(apiConfigured);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
@@ -45,12 +49,13 @@ export function AppProvider({ children }) {
   const [payments, setPayments] = useState(apiConfigured ? [] : demoPayments);
   const [notifications, setNotifications] = useState(apiConfigured ? [] : demoNotifications);
   const [selectedAccount, setSelectedAccount] = useState('checking');
+  const [paymentAccount, setPaymentAccount] = useState('checking');
   const [showCreateAccount, setShowCreateAccount] = useState(false);
   const [newAccountType, setNewAccountType] = useState('Checking');
   const [newAccountDeposit, setNewAccountDeposit] = useState('0');
   const [pendingCloseId, setPendingCloseId] = useState(null);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [managerData, setManagerData] = useState(apiConfigured ? { customers: [], accounts: [], reports: [] } : demoManagerData);
+  const [managerData, setManagerData] = useState(initialManagerData);
   const [managerSearch, setManagerSearch] = useState('');
   const [managerReportFilter, setManagerReportFilter] = useState('All');
   const [showManagerReport, setShowManagerReport] = useState(false);
@@ -68,7 +73,7 @@ export function AppProvider({ children }) {
   const [transactionType, setTransactionType] = useState('All');
   const [transactionStart, setTransactionStart] = useState('');
   const [transactionEnd, setTransactionEnd] = useState('');
-  const [profileDraft, setProfileDraft] = useState(apiConfigured ? { first_name: '', last_name: '', phone: '' } : { first_name: demoProfile.first_name, last_name: demoProfile.last_name, phone: demoProfile.phone });
+  const [profileDraft, setProfileDraft] = useState(initialProfileDraft);
 
   const unread = notifications.filter((item) => !item.read).length;
   const isManager = profile.role === 'manager' || profile.role === 'employee' || profile.role === 'admin';
@@ -104,6 +109,7 @@ export function AppProvider({ children }) {
     setProfileDraft({ first_name: nextProfile.first_name || '', last_name: nextProfile.last_name || '', phone: nextProfile.phone || '' });
     setAccounts(nextAccounts);
     setSelectedAccount(nextAccounts[0]?.id || 'all');
+    setPaymentAccount(nextAccounts[0]?.id || '');
     setTransferFrom(nextAccounts[0]?.id || '');
     setTransferTo(nextAccounts[1]?.id || '');
     setPayments(unwrap(paymentResult, 'payments'));
@@ -147,15 +153,32 @@ export function AppProvider({ children }) {
     finally { setBusy(false); }
   }
 
-  // Restore a saved web session on first load: try the refresh token, otherwise show the login screen.
+  // Restore a saved session on first load: try the stored refresh token, otherwise show the login screen.
   useEffect(() => {
-    const token = apiConfigured ? storedRefreshToken() : null;
-    if (!token) { setRestoring(false); return; }
-    bankingApi.refresh(token)
-      .then(startSession)
-      .catch(() => clearSession())
-      .finally(() => setRestoring(false));
+    (async () => {
+      const token = apiConfigured ? await storedRefreshToken() : null;
+      if (!token) return;
+      try { await startSession(await bankingApi.refresh(token)); } catch { clearSession(); }
+    })().finally(() => setRestoring(false));
   }, []);
+
+  // api() calls this when a 401 survives a refresh attempt.
+  useEffect(() => {
+    onSessionExpired(() => resetSession(SESSION_EXPIRED));
+    return () => onSessionExpired(null);
+  }, []);
+
+  // Native apps sit in the background for hours: renew the access token when the app becomes active again.
+  useEffect(() => {
+    if (isWeb || !apiConfigured || !signedIn) return undefined;
+    const subscription = NativeAppState.addEventListener('change', (state) => {
+      if (state !== 'active' || !hasSession() || !sessionExpiresSoon()) return;
+      refreshSession()
+        .then((renewed) => { if (!renewed) resetSession(SESSION_EXPIRED); })
+        .catch(() => { /* Offline: keep the session; api() refreshes on the next 401. */ });
+    });
+    return () => subscription.remove();
+  }, [signedIn]);
 
   async function verifyMfa() {
     if (!mfaCode.trim()) { setNotice('Enter your verification code.'); return; }
@@ -177,8 +200,22 @@ export function AppProvider({ children }) {
 
   async function signOut() {
     if (apiConfigured) { try { await bankingApi.logout(); } catch { /* Clear the local session regardless. */ } }
-    clearSession(); setSignedIn(false); setPassword(''); setMfaCode(''); setAuthView('login'); setNotice('');
+    resetSession();
+  }
+
+  // Return every piece of user data and every form draft to its initial value, so the next user starts clean.
+  function resetSession(message = '') {
+    clearSession(); setSignedIn(false); setAuthView('login'); setNotice(message);
+    setEmail(''); setPassword(''); setMfaCode(''); setRegisterDraft(emptyRegisterDraft);
     setProfile(apiConfigured ? {} : demoProfile); setAccounts(apiConfigured ? [] : demoAccounts); setTransactions(apiConfigured ? [] : demoTransactions);
+    setPayments(apiConfigured ? [] : demoPayments); setNotifications(apiConfigured ? [] : demoNotifications); setShowNotifications(false);
+    setManagerData(initialManagerData); setManagerSearch(''); setManagerReportFilter('All'); setShowManagerReport(false);
+    setSelectedAccount('checking'); setPaymentAccount('checking'); setShowCreateAccount(false); setNewAccountType('Checking'); setNewAccountDeposit('0'); setPendingCloseId(null);
+    setTransferFrom('checking'); setTransferTo('savings'); setTransferAmount(''); setTransferNote('');
+    setPayee(''); setPaymentAmount(''); setPaymentDate(''); setFrequency('Once');
+    setAtmSearch('San Francisco, CA'); setAtms(demoAtms);
+    setTransactionSearch(''); setTransactionType('All'); setTransactionStart(''); setTransactionEnd('');
+    setProfileDraft(initialProfileDraft);
     // Native uses a tab navigator, which handles navigate but not replace.
     if (isWeb) router.replace('/'); else router.navigate('/');
   }
@@ -212,10 +249,10 @@ export function AppProvider({ children }) {
     const amount = Number(paymentAmount);
     if (!payee.trim()) { setNotice('Enter a payee name.'); return; }
     if (!validMoney(paymentAmount)) { setNotice('Enter an amount greater than $0 with up to two decimal places.'); return; }
-    if (!validDate(paymentDate) || paymentDate < today) { setNotice('Enter a valid date today or later as YYYY-MM-DD.'); return; }
+    if (!validDate(paymentDate) || paymentDate < todayString()) { setNotice('Enter a valid date today or later as YYYY-MM-DD.'); return; }
     setBusy(true); setNotice('');
     try {
-      const payload = { account_id: selectedAccount === 'all' ? accounts[0]?.id : selectedAccount, recipient: payee.trim(), amount, next_payment_date: paymentDate, frequency: frequency.toLowerCase() };
+      const payload = { account_id: paymentAccount || accounts[0]?.id, recipient: payee.trim(), amount, next_payment_date: paymentDate, frequency: frequency.toLowerCase() };
       if (apiConfigured) { await bankingApi.createPayment(payload); await loadData(); }
       else setPayments((current) => [{ ...payload, id: `demo-${Date.now()}`, frequency, status: 'Scheduled' }, ...current]);
       setPayee(''); setPaymentAmount(''); setPaymentDate(''); setNotice('Your payment was scheduled.');
@@ -303,7 +340,7 @@ export function AppProvider({ children }) {
   const value = {
     compact, signedIn, setSignedIn, restoring, registerDraft, setRegisterDraft, register, authView, setAuthView, email, setEmail, password, setPassword, mfaCode, setMfaCode,
     busy, notice, setNotice, profile, setProfile, accounts, setAccounts, transactions, setTransactions, payments, setPayments,
-    notifications, setNotifications, selectedAccount, setSelectedAccount, showCreateAccount, setShowCreateAccount,
+    notifications, setNotifications, selectedAccount, setSelectedAccount, paymentAccount, setPaymentAccount, showCreateAccount, setShowCreateAccount,
     newAccountType, setNewAccountType, newAccountDeposit, setNewAccountDeposit, pendingCloseId, setPendingCloseId,
     showNotifications, setShowNotifications, managerData, managerSearch, setManagerSearch, managerReportFilter,
     setManagerReportFilter, showManagerReport, setShowManagerReport, transferFrom, setTransferFrom, transferTo, setTransferTo,

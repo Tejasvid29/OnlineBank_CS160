@@ -7,7 +7,7 @@ import { useApp } from '../src/state/AppState';
 
 export default function Payments() {
   const {
-    notice, payee, setPayee, selectedAccount, setSelectedAccount, accountOptions, accounts, paymentAmount,
+    notice, payee, setPayee, paymentAccount, setPaymentAccount, accountOptions, accounts, paymentAmount,
     setPaymentAmount, paymentDate, setPaymentDate, frequency, setFrequency, submitPayment, busy, payments,
     cancelPayment, compact,
   } = useApp();
@@ -19,7 +19,7 @@ export default function Payments() {
       <Card style={styles.formCard}>
         <Text style={styles.cardTitle}>Schedule a payment</Text>
         <Field label="Payee" value={payee} onChangeText={setPayee} placeholder="Business or person" />
-        <Choice label="Pay from" value={selectedAccount === 'all' ? accounts[0]?.id : selectedAccount} options={accountOptions} onChange={setSelectedAccount} />
+        <Choice label="Pay from" value={paymentAccount || accounts[0]?.id} options={accountOptions} onChange={setPaymentAccount} />
         <Field label="Amount" value={paymentAmount} onChangeText={setPaymentAmount} keyboardType="decimal-pad" placeholder="0.00" />
         <Field label="Payment date" value={paymentDate} onChangeText={setPaymentDate} placeholder="YYYY-MM-DD" accessibilityHint="Enter a date in year-month-day format" />
         <Choice label="Repeat" value={frequency} options={['Once', 'Weekly', 'Monthly'].map((value) => ({ label: value, value }))} onChange={setFrequency} />
