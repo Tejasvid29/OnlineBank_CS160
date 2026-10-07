@@ -29,10 +29,13 @@ export const onSessionExpired = (handler) => { sessionExpiredHandler = handler; 
 // Routes where a 401 means bad credentials, not an expired session.
 const PUBLIC_ROUTES = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/forgot-password', '/auth/mfa/verify'];
 
+// FormData bodies get no Content-Type so fetch can add the multipart boundary itself.
+const isFormData = (body) => typeof FormData !== 'undefined' && body instanceof FormData;
+
 const send = (path, options) => fetch(`${baseUrl}${path}`, {
   ...options,
   headers: {
-    'Content-Type': 'application/json',
+    ...(isFormData(options.body) ? {} : { 'Content-Type': 'application/json' }),
     ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
     ...options.headers,
   },
@@ -80,6 +83,19 @@ export async function api(path, options = {}) {
   return response.json();
 }
 
+// Multipart upload through the same auth and 401-refresh handling as api().
+// React Native files are { uri, name, type } objects appended to the FormData.
+export const upload = (path, formData, options = {}) => api(path, { method: 'POST', ...options, body: formData });
+
+function depositForm({ account_id, amount, front, back }) {
+  const form = new FormData();
+  form.append('account_id', account_id);
+  form.append('amount', String(amount));
+  form.append('front_image', { uri: front.uri, name: 'front.jpg', type: front.mimeType || 'image/jpeg' });
+  form.append('back_image', { uri: back.uri, name: 'back.jpg', type: back.mimeType || 'image/jpeg' });
+  return form;
+}
+
 export const bankingApi = {
   login: (email, password) => api('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
   register: (payload) => api('/auth/register', { method: 'POST', body: JSON.stringify(payload) }),
@@ -99,6 +115,8 @@ export const bankingApi = {
   notifications: () => api('/notifications'),
   markNotificationRead: (id) => api(`/notifications/${encodeURIComponent(id)}/read`, { method: 'PATCH' }),
   atms: (location) => api(`/atm/search?location=${encodeURIComponent(location)}`),
+  atmsNear: (latitude, longitude) => api(`/atm/search?lat=${encodeURIComponent(latitude)}&lng=${encodeURIComponent(longitude)}`),
+  depositCheck: (payload) => upload('/deposits', depositForm(payload)),
   managerCustomers: () => api('/manager/customers'),
   managerAccounts: () => api('/manager/accounts'),
   managerReports: () => api('/manager/reports'),

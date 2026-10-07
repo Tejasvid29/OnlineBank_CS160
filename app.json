@@ -15,7 +15,21 @@
       "expo-router",
       "expo-status-bar",
       "expo-secure-store",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "CS160 Bank uses the camera to photograph the front and back of checks you deposit.",
+          "photosPermission": "CS160 Bank can use a saved photo of a check for a deposit.",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "CS160 Bank uses your location to find nearby ATMs."
+        }
+      ]
     ]
   }
 }

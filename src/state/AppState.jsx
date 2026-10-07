@@ -22,6 +22,13 @@ const validDate = (value) => {
   return parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === day;
 };
 
+// Straight-line distance in miles, used to sort demo ATMs by the user's location.
+const milesBetween = (a, b) => {
+  const rad = (degrees) => degrees * Math.PI / 180;
+  const h = Math.sin(rad(b.latitude - a.latitude) / 2) ** 2 + Math.cos(rad(a.latitude)) * Math.cos(rad(b.latitude)) * Math.sin(rad(b.longitude - a.longitude) / 2) ** 2;
+  return 3958.8 * 2 * Math.asin(Math.sqrt(h));
+};
+
 const AppContext = createContext(null);
 
 export function useApp() {
@@ -310,6 +317,47 @@ export function AppProvider({ children }) {
     finally { setBusy(false); }
   }
 
+  // Native ATM search from GPS coordinates. API mode needs GET /atm/search?lat=&lng= (not built yet).
+  async function findAtmsNear(position, label) {
+    if (label) setAtmSearch(label);
+    setBusy(true); setNotice('');
+    try {
+      if (apiConfigured) setAtms(unwrap(await bankingApi.atmsNear(position.latitude, position.longitude), 'atms'));
+      else {
+        setAtms(demoAtms.map((atm) => ({ ...atm, miles: milesBetween(position, atm) })).sort((a, b) => a.miles - b.miles).map(({ miles, ...atm }) => ({ ...atm, distance: `${miles < 10 ? miles.toFixed(1) : Math.round(miles).toLocaleString('en-US')} mi` })));
+        setNotice('Showing sample ATM locations sorted by distance from you.', 'info');
+      }
+    } catch (error) { fail(error); }
+    finally { setBusy(false); }
+  }
+
+  // Check deposit (native). Returns an error message, or '' when the details are valid.
+  function depositError(accountId, amount) {
+    if (!accounts.some((item) => item.id === accountId && item.status !== 'closed')) return 'Choose the account to deposit into.';
+    if (!validMoney(amount)) return 'Enter the check amount, greater than $0 with up to two decimal places.';
+    return '';
+  }
+
+  // front/back are image-picker assets ({ uri, mimeType }). Resolves true when the deposit was submitted.
+  async function submitDeposit({ accountId, amount, front, back }) {
+    const error = depositError(accountId, amount) || (!front || !back ? 'Photograph the front and back of the check.' : '');
+    if (error) { setNotice(error); return false; }
+    const value = Number(amount);
+    setBusy(true); setNotice('');
+    try {
+      if (apiConfigured) { await bankingApi.depositCheck({ account_id: accountId, amount: value, front, back }); await loadData(); }
+      else {
+        // Demo: the deposit waits for review, so balances stay the same until it clears.
+        const stamp = new Date().toISOString();
+        setTransactions((current) => [{ id: `demo-deposit-${stamp}`, account_id: accountId, description: 'Mobile check deposit', transaction_type: 'Deposit', amount: value, created_at: stamp, status: 'Pending' }, ...current]);
+        setNotifications((current) => [{ id: `demo-n-${stamp}`, notification_type: 'Deposit', message: `Your check deposit of ${money(value)} was received and is pending review.`, created_at: stamp, read: false }, ...current]);
+      }
+      setNotice(`Check deposit of ${money(value)} submitted for review.`, 'success');
+      return true;
+    } catch (failure) { fail(failure); return false; }
+    finally { setBusy(false); }
+  }
+
   async function saveProfile() {
     if (!profileDraft.first_name.trim() || !profileDraft.last_name.trim()) { setNotice('Enter your first and last name.'); return; }
     setBusy(true); setNotice('');
@@ -353,7 +401,7 @@ export function AppProvider({ children }) {
     transactionType, setTransactionType, transactionStart, setTransactionStart, transactionEnd, setTransactionEnd, profileDraft,
     setProfileDraft, unread, isManager, total, visibleTransactions, accountOptions,
     navigate, signIn, verifyMfa, resetPassword, signOut, submitTransfer, submitPayment, cancelPayment, createAccount,
-    closeAccount, findAtms, saveProfile, markRead, openManager,
+    closeAccount, findAtms, findAtmsNear, depositError, submitDeposit, saveProfile, markRead, openManager,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
