@@ -1,5 +1,5 @@
 import React from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 import { apiConfigured } from '../services/api';
 import { colors } from '../theme';
 import { styles } from '../styles/appStyles';
@@ -14,11 +14,7 @@ export function LoginScreen() {
   const setDraft = (key) => (value) => setRegisterDraft((current) => ({ ...current, [key]: value }));
   const switchView = (view) => { setAuthView(view); setNotice(''); };
 
-  // Native only: keep the focused field and submit button above the keyboard. Web renders the ScrollView as before.
-  const KeyboardFrame = Platform.OS === 'web' ? React.Fragment : KeyboardAvoidingView;
-  const keyboardProps = Platform.OS === 'web' ? {} : { style: { flex: 1 }, behavior: Platform.OS === 'ios' ? 'padding' : undefined };
-
-  return <KeyboardFrame {...keyboardProps}><ScrollView style={styles.loginShell} contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
+  return <ScrollView style={styles.loginShell} contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
     <View style={styles.loginTop}><View style={styles.brandMark}><Icon name="shield-checkmark" size={23} color={colors.white} /></View><Text style={styles.brandName}>CS160 Bank</Text></View>
     <View style={styles.loginBody}>
       <View style={[styles.loginIntro, compact && { paddingRight: 0 }]}>
@@ -54,5 +50,5 @@ export function LoginScreen() {
       </Card>
     </View>
     <Text style={styles.loginFooter}>CS160 Bank · Class project interface</Text>
-  </ScrollView></KeyboardFrame>;
+  </ScrollView>;
 }

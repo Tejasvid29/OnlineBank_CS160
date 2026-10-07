@@ -1,12 +1,12 @@
 import React from 'react';
-import { Platform, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { apiConfigured } from '../src/services/api';
 import { styles } from '../src/styles/appStyles';
 import { Action, Card, Divider, Field, Icon, LinkButton, Notice, SectionHeading } from '../src/ui/primitives';
 import { useApp } from '../src/state/AppState';
 
 export default function Profile() {
-  const { notice, profileDraft, setProfileDraft, profile, setProfile, saveProfile, busy, isManager, setNotice, compact, signOut } = useApp();
+  const { notice, profileDraft, setProfileDraft, profile, setProfile, saveProfile, busy, isManager, setNotice, compact } = useApp();
 
   return <>
     <SectionHeading title="Profile & settings" subtitle="Keep your contact information up to date." />
@@ -29,8 +29,6 @@ export default function Profile() {
         <Divider />
         <Text style={styles.rowSub}>Signed in as</Text>
         <Text style={styles.rowTitle}>{profile.email}</Text>
-        {/* Web keeps Sign out in the header; the native header has no room for it. */}
-        {Platform.OS !== 'web' && <Action variant="secondary" icon="log-out-outline" onPress={signOut} style={{ marginTop: 18 }}>Sign out</Action>}
       </Card>
     </View>
   </>;
