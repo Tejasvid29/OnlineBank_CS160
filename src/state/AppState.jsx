@@ -1,13 +1,17 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { Platform, useWindowDimensions } from 'react-native';
+import { AppState as NativeAppState, Platform, useWindowDimensions } from 'react-native';
 import { useRouter } from 'expo-router';
-import { apiConfigured, bankingApi, clearSession, setSession, storedRefreshToken } from '../services/api';
+import { apiConfigured, bankingApi, clearSession, hasSession, onSessionExpired, refreshSession, sessionExpiresSoon, setSession, storedRefreshToken } from '../services/api';
 import { demoAccounts, demoAtms, demoManagerData, demoNotifications, demoPayments, demoProfile, demoTransactions } from '../data/demo';
 import { isActivated, money, titleCase } from '../theme';
 
 const isWeb = Platform.OS === 'web';
-const now = new Date();
-const today = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+// Local date as YYYY-MM-DD, computed when needed so an app left open past midnight stays correct.
+const todayString = () => { const now = new Date(); return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
+const emptyRegisterDraft = { first_name: '', last_name: '', phone: '', confirm: '' };
+const initialProfileDraft = apiConfigured ? { first_name: '', last_name: '', phone: '' } : { first_name: demoProfile.first_name, last_name: demoProfile.last_name, phone: demoProfile.phone };
+const initialManagerData = apiConfigured ? { customers: [], accounts: [], reports: [] } : demoManagerData;
+const SESSION_EXPIRED = 'Your session has expired. Please sign in again.';
 const unwrap = (value, key) => Array.isArray(value) ? value : value?.[key] || [];
 const validEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 const validMoney = (value, allowZero = false) => /^\d+(?:\.\d{1,2})?$/.test(value.trim()) && (allowZero ? Number(value) >= 0 : Number(value) > 0);
@@ -16,6 +20,13 @@ const validDate = (value) => {
   const [year, month, day] = value.split('-').map(Number);
   const parsed = new Date(year, month - 1, day);
   return parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === day;
+};
+
+// Straight-line distance in miles, used to sort demo ATMs by the user's location.
+const milesBetween = (a, b) => {
+  const rad = (degrees) => degrees * Math.PI / 180;
+  const h = Math.sin(rad(b.latitude - a.latitude) / 2) ** 2 + Math.cos(rad(a.latitude)) * Math.cos(rad(b.latitude)) * Math.sin(rad(b.longitude - a.longitude) / 2) ** 2;
+  return 3958.8 * 2 * Math.asin(Math.sqrt(h));
 };
 
 const AppContext = createContext(null);
@@ -35,21 +46,23 @@ export function AppProvider({ children }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [mfaCode, setMfaCode] = useState('');
-  const [registerDraft, setRegisterDraft] = useState({ first_name: '', last_name: '', phone: '', confirm: '' });
+  const [registerDraft, setRegisterDraft] = useState(emptyRegisterDraft);
   const [restoring, setRestoring] = useState(apiConfigured);
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState('');
+  const [notice, setNoticeText] = useState('');
+  const [noticeKind, setNoticeKind] = useState('error');
   const [profile, setProfile] = useState(apiConfigured ? {} : demoProfile);
   const [accounts, setAccounts] = useState(apiConfigured ? [] : demoAccounts);
   const [transactions, setTransactions] = useState(apiConfigured ? [] : demoTransactions);
   const [payments, setPayments] = useState(apiConfigured ? [] : demoPayments);
   const [notifications, setNotifications] = useState(apiConfigured ? [] : demoNotifications);
   const [selectedAccount, setSelectedAccount] = useState('checking');
+  const [paymentAccount, setPaymentAccount] = useState('checking');
   const [showCreateAccount, setShowCreateAccount] = useState(false);
   const [newAccountType, setNewAccountType] = useState('checking');
   const [pendingCloseId, setPendingCloseId] = useState(null);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [managerData, setManagerData] = useState(apiConfigured ? { customers: [], accounts: [], reports: [] } : demoManagerData);
+  const [managerData, setManagerData] = useState(initialManagerData);
   const [managerSearch, setManagerSearch] = useState('');
   const [managerReportFilter, setManagerReportFilter] = useState('All');
   const [showManagerReport, setShowManagerReport] = useState(false);
@@ -67,7 +80,7 @@ export function AppProvider({ children }) {
   const [transactionType, setTransactionType] = useState('All');
   const [transactionStart, setTransactionStart] = useState('');
   const [transactionEnd, setTransactionEnd] = useState('');
-  const [profileDraft, setProfileDraft] = useState(apiConfigured ? { first_name: '', last_name: '', phone: '' } : { first_name: demoProfile.first_name, last_name: demoProfile.last_name, phone: demoProfile.phone });
+  const [profileDraft, setProfileDraft] = useState(initialProfileDraft);
 
   const unread = notifications.filter((item) => !item.read).length;
   const isManager = profile.role === 'manager' || profile.role === 'employee' || profile.role === 'admin';
@@ -87,6 +100,9 @@ export function AppProvider({ children }) {
     if (isWeb) window.scrollTo?.({ top: 0, behavior: 'smooth' });
   }
 
+  // kind is 'error' (default), 'success' or 'info'. Web screens still choose their notice color from the text; the native toast uses kind.
+  function setNotice(text, kind = 'error') { setNoticeText(text); setNoticeKind(kind); }
+
   function fail(error) { setNotice(error?.message || 'Something went wrong. Please try again.'); }
 
   async function loadData() {
@@ -104,6 +120,7 @@ export function AppProvider({ children }) {
     setAccounts(nextAccounts);
     const activeAccounts = nextAccounts.filter(isActivated);
     setSelectedAccount(nextAccounts[0]?.id || 'all');
+    setPaymentAccount(activeAccounts[0]?.id || '');
     setTransferFrom(activeAccounts[0]?.id || '');
     setTransferTo(activeAccounts[1]?.id || '');
     setPayments(unwrap(paymentResult, 'payments'));
@@ -147,15 +164,32 @@ export function AppProvider({ children }) {
     finally { setBusy(false); }
   }
 
-  // Restore a saved web session on first load: try the refresh token, otherwise show the login screen.
+  // Restore a saved session on first load: try the stored refresh token, otherwise show the login screen.
   useEffect(() => {
-    const token = apiConfigured ? storedRefreshToken() : null;
-    if (!token) { setRestoring(false); return; }
-    bankingApi.refresh(token)
-      .then(startSession)
-      .catch(() => clearSession())
-      .finally(() => setRestoring(false));
+    (async () => {
+      const token = apiConfigured ? await storedRefreshToken() : null;
+      if (!token) return;
+      try { await startSession(await bankingApi.refresh(token)); } catch { clearSession(); }
+    })().finally(() => setRestoring(false));
   }, []);
+
+  // api() calls this when a 401 survives a refresh attempt.
+  useEffect(() => {
+    onSessionExpired(() => resetSession(SESSION_EXPIRED));
+    return () => onSessionExpired(null);
+  }, []);
+
+  // Native apps sit in the background for hours: renew the access token when the app becomes active again.
+  useEffect(() => {
+    if (isWeb || !apiConfigured || !signedIn) return undefined;
+    const subscription = NativeAppState.addEventListener('change', (state) => {
+      if (state !== 'active' || !hasSession() || !sessionExpiresSoon()) return;
+      refreshSession()
+        .then((renewed) => { if (!renewed) resetSession(SESSION_EXPIRED); })
+        .catch(() => { /* Offline: keep the session; api() refreshes on the next 401. */ });
+    });
+    return () => subscription.remove();
+  }, [signedIn]);
 
   async function verifyMfa() {
     if (!mfaCode.trim()) { setNotice('Enter your verification code.'); return; }
@@ -170,16 +204,31 @@ export function AppProvider({ children }) {
   async function resetPassword() {
     if (!email.trim()) { setNotice('Enter your email address.'); return; }
     setBusy(true); setNotice('');
-    try { await bankingApi.forgotPassword(email.trim()); setNotice('If this address is registered, a reset link will be sent.'); }
+    try { await bankingApi.forgotPassword(email.trim()); setNotice('If this address is registered, a reset link will be sent.', 'success'); }
     catch (error) { fail(error); }
     finally { setBusy(false); }
   }
 
   async function signOut() {
     if (apiConfigured) { try { await bankingApi.logout(); } catch { /* Clear the local session regardless. */ } }
-    clearSession(); setSignedIn(false); setPassword(''); setMfaCode(''); setAuthView('login'); setNotice('');
+    resetSession();
+  }
+
+  // Return every piece of user data and every form draft to its initial value, so the next user starts clean.
+  function resetSession(message = '') {
+    clearSession(); setSignedIn(false); setAuthView('login'); setNotice(message);
+    setEmail(''); setPassword(''); setMfaCode(''); setRegisterDraft(emptyRegisterDraft);
     setProfile(apiConfigured ? {} : demoProfile); setAccounts(apiConfigured ? [] : demoAccounts); setTransactions(apiConfigured ? [] : demoTransactions);
-    router.replace('/');
+    setPayments(apiConfigured ? [] : demoPayments); setNotifications(apiConfigured ? [] : demoNotifications); setShowNotifications(false);
+    setManagerData(initialManagerData); setManagerSearch(''); setManagerReportFilter('All'); setShowManagerReport(false);
+    setSelectedAccount('checking'); setPaymentAccount('checking'); setShowCreateAccount(false); setNewAccountType('checking'); setPendingCloseId(null);
+    setTransferFrom('checking'); setTransferTo('savings'); setTransferAmount(''); setTransferNote('');
+    setPayee(''); setPaymentAmount(''); setPaymentDate(''); setFrequency('Once');
+    setAtmSearch('San Francisco, CA'); setAtms(demoAtms);
+    setTransactionSearch(''); setTransactionType('All'); setTransactionStart(''); setTransactionEnd('');
+    setProfileDraft(initialProfileDraft);
+    // Native uses a tab navigator, which handles navigate but not replace.
+    if (isWeb) router.replace('/'); else router.navigate('/');
   }
 
   async function submitTransfer() {
@@ -202,7 +251,7 @@ export function AppProvider({ children }) {
           ...current,
         ]);
       }
-      setTransferAmount(''); setTransferNote(''); setNotice(`Transfer of ${money(amount)} completed.`);
+      setTransferAmount(''); setTransferNote(''); setNotice(`Transfer of ${money(amount)} completed.`, 'success');
     } catch (error) { fail(error); }
     finally { setBusy(false); }
   }
@@ -211,13 +260,13 @@ export function AppProvider({ children }) {
     const amount = Number(paymentAmount);
     if (!payee.trim()) { setNotice('Enter a payee name.'); return; }
     if (!validMoney(paymentAmount)) { setNotice('Enter an amount greater than $0 with up to two decimal places.'); return; }
-    if (!validDate(paymentDate) || paymentDate < today) { setNotice('Enter a valid date today or later as YYYY-MM-DD.'); return; }
+    if (!validDate(paymentDate) || paymentDate < todayString()) { setNotice('Enter a valid date today or later as YYYY-MM-DD.'); return; }
     setBusy(true); setNotice('');
     try {
-      const payload = { account_id: selectedAccount === 'all' ? accounts[0]?.id : selectedAccount, recipient: payee.trim(), amount, next_payment_date: paymentDate, frequency: frequency.toLowerCase() };
+      const payload = { account_id: paymentAccount || accounts[0]?.id, recipient: payee.trim(), amount, next_payment_date: paymentDate, frequency: frequency.toLowerCase() };
       if (apiConfigured) { await bankingApi.createPayment(payload); await loadData(); }
       else setPayments((current) => [{ ...payload, id: `demo-${Date.now()}`, frequency, status: 'Scheduled' }, ...current]);
-      setPayee(''); setPaymentAmount(''); setPaymentDate(''); setNotice('Your payment was scheduled.');
+      setPayee(''); setPaymentAmount(''); setPaymentDate(''); setNotice('Your payment was scheduled.', 'success');
     } catch (error) { fail(error); }
     finally { setBusy(false); }
   }
@@ -227,7 +276,7 @@ export function AppProvider({ children }) {
     try {
       if (apiConfigured) { await bankingApi.cancelPayment(id); await loadData(); }
       else setPayments((current) => current.filter((item) => item.id !== id));
-      setNotice('The scheduled payment was canceled.');
+      setNotice('The scheduled payment was canceled.', 'success');
     } catch (error) { fail(error); }
     finally { setBusy(false); }
   }
@@ -240,7 +289,7 @@ export function AppProvider({ children }) {
         const id = `demo-account-${Date.now()}`;
         setAccounts((current) => [...current, { id, account_type: newAccountType, account_number: `•••• ${String(Date.now()).slice(-4)}`, balance: 0, status: 'activated' }]);
       }
-      setShowCreateAccount(false); setNotice('Your account was created.');
+      setShowCreateAccount(false); setNotice('Your account was created.', 'success');
     } catch (error) { fail(error); }
     finally { setBusy(false); }
   }
@@ -253,7 +302,7 @@ export function AppProvider({ children }) {
       if (apiConfigured) { await bankingApi.closeAccount(account.id); await loadData(); }
       else setAccounts((current) => current.map((item) => item.id === account.id ? { ...item, status: 'deactivated', closed_at: new Date().toISOString() } : item));
       setPendingCloseId(null);
-      setNotice('The account was closed. Its history remains available.');
+      setNotice('The account was closed. Its history remains available.', 'success');
     } catch (error) { fail(error); }
     finally { setBusy(false); }
   }
@@ -261,8 +310,49 @@ export function AppProvider({ children }) {
   async function findAtms() {
     if (!atmSearch.trim()) { setNotice('Enter a city, ZIP code, or address.'); return; }
     setBusy(true); setNotice('');
-    try { if (apiConfigured) setAtms(unwrap(await bankingApi.atms(atmSearch.trim()), 'atms')); else setNotice('Showing sample ATM locations near San Francisco.'); }
+    try { if (apiConfigured) setAtms(unwrap(await bankingApi.atms(atmSearch.trim()), 'atms')); else setNotice('Showing sample ATM locations near San Francisco.', 'info'); }
     catch (error) { fail(error); }
+    finally { setBusy(false); }
+  }
+
+  // Native ATM search from GPS coordinates. API mode needs GET /atm/search?lat=&lng= (not built yet).
+  async function findAtmsNear(position, label) {
+    if (label) setAtmSearch(label);
+    setBusy(true); setNotice('');
+    try {
+      if (apiConfigured) setAtms(unwrap(await bankingApi.atmsNear(position.latitude, position.longitude), 'atms'));
+      else {
+        setAtms(demoAtms.map((atm) => ({ ...atm, miles: milesBetween(position, atm) })).sort((a, b) => a.miles - b.miles).map(({ miles, ...atm }) => ({ ...atm, distance: `${miles < 10 ? miles.toFixed(1) : Math.round(miles).toLocaleString('en-US')} mi` })));
+        setNotice('Showing sample ATM locations sorted by distance from you.', 'info');
+      }
+    } catch (error) { fail(error); }
+    finally { setBusy(false); }
+  }
+
+  // Check deposit (native). Returns an error message, or '' when the details are valid.
+  function depositError(accountId, amount) {
+    if (!accounts.some((item) => item.id === accountId && isActivated(item))) return 'Choose the account to deposit into.';
+    if (!validMoney(amount)) return 'Enter the check amount, greater than $0 with up to two decimal places.';
+    return '';
+  }
+
+  // front/back are image-picker assets ({ uri, mimeType }). Resolves true when the deposit was submitted.
+  async function submitDeposit({ accountId, amount, front, back }) {
+    const error = depositError(accountId, amount) || (!front || !back ? 'Photograph the front and back of the check.' : '');
+    if (error) { setNotice(error); return false; }
+    const value = Number(amount);
+    setBusy(true); setNotice('');
+    try {
+      if (apiConfigured) { await bankingApi.depositCheck({ account_id: accountId, amount: value, front, back }); await loadData(); }
+      else {
+        // Demo: the deposit waits for review, so balances stay the same until it clears.
+        const stamp = new Date().toISOString();
+        setTransactions((current) => [{ id: `demo-deposit-${stamp}`, account_id: accountId, description: 'Mobile check deposit', transaction_type: 'Deposit', amount: value, created_at: stamp, status: 'Pending' }, ...current]);
+        setNotifications((current) => [{ id: `demo-n-${stamp}`, notification_type: 'Deposit', message: `Your check deposit of ${money(value)} was received and is pending review.`, created_at: stamp, read: false }, ...current]);
+      }
+      setNotice(`Check deposit of ${money(value)} submitted for review.`, 'success');
+      return true;
+    } catch (failure) { fail(failure); return false; }
     finally { setBusy(false); }
   }
 
@@ -272,7 +362,7 @@ export function AppProvider({ children }) {
     try {
       if (apiConfigured) throw new Error('Profile updates need a dedicated backend profile endpoint.');
       setProfile((current) => ({ ...current, ...profileDraft }));
-      setNotice('Your profile was updated.');
+      setNotice('Your profile was updated.', 'success');
     } catch (error) { fail(error); }
     finally { setBusy(false); }
   }
@@ -299,8 +389,8 @@ export function AppProvider({ children }) {
 
   const value = {
     compact, signedIn, setSignedIn, restoring, registerDraft, setRegisterDraft, register, authView, setAuthView, email, setEmail, password, setPassword, mfaCode, setMfaCode,
-    busy, notice, setNotice, profile, setProfile, accounts, setAccounts, transactions, setTransactions, payments, setPayments,
-    notifications, setNotifications, selectedAccount, setSelectedAccount, showCreateAccount, setShowCreateAccount,
+    busy, notice, noticeKind, setNotice, profile, setProfile, accounts, setAccounts, transactions, setTransactions, payments, setPayments,
+    notifications, setNotifications, selectedAccount, setSelectedAccount, paymentAccount, setPaymentAccount, showCreateAccount, setShowCreateAccount,
     newAccountType, setNewAccountType, pendingCloseId, setPendingCloseId,
     showNotifications, setShowNotifications, managerData, managerSearch, setManagerSearch, managerReportFilter,
     setManagerReportFilter, showManagerReport, setShowManagerReport, transferFrom, setTransferFrom, transferTo, setTransferTo,
@@ -309,7 +399,7 @@ export function AppProvider({ children }) {
     transactionType, setTransactionType, transactionStart, setTransactionStart, transactionEnd, setTransactionEnd, profileDraft,
     setProfileDraft, unread, isManager, total, visibleTransactions, accountOptions,
     navigate, signIn, verifyMfa, resetPassword, signOut, submitTransfer, submitPayment, cancelPayment, createAccount,
-    closeAccount, findAtms, saveProfile, markRead, openManager,
+    closeAccount, findAtms, findAtmsNear, depositError, submitDeposit, saveProfile, markRead, openManager,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

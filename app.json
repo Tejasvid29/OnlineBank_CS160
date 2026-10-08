@@ -3,7 +3,7 @@
     "name": "CS160 Bank",
     "slug": "onlinebank-cs160",
     "version": "1.0.0",
-    "orientation": "default",
+    "orientation": "portrait",
     "userInterfaceStyle": "light",
     "scheme": "cs160bank",
     "web": {
@@ -13,7 +13,23 @@
     },
     "plugins": [
       "expo-router",
-      "expo-status-bar"
+      "expo-status-bar",
+      "expo-secure-store",
+      "@react-native-community/datetimepicker",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "CS160 Bank uses the camera to photograph the front and back of checks you deposit.",
+          "photosPermission": "CS160 Bank can use a saved photo of a check for a deposit.",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "CS160 Bank uses your location to find nearby ATMs."
+        }
+      ]
     ]
   }
 }

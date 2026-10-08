@@ -1,28 +1,76 @@
+import { readRefreshToken, writeRefreshToken } from './tokenStorage';
+
 const baseUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '') || '';
 let accessToken = null;
-const REFRESH_KEY = 'bank_refresh_token';
+let refreshToken = null;
+let expiresAt = 0;
+let refreshing = null;
+let storageWrite = Promise.resolve();
+let sessionExpiredHandler = null;
 
-// The refresh token survives page reloads on web only; native sessions stay in memory.
-const storage = typeof localStorage !== 'undefined' ? localStorage : null;
-const readRefreshToken = () => { try { return storage?.getItem(REFRESH_KEY) || null; } catch { return null; } };
-const writeRefreshToken = (token) => { try { token ? storage?.setItem(REFRESH_KEY, token) : storage?.removeItem(REFRESH_KEY); } catch { /* Storage unavailable. */ } };
-
+// The refresh token is persisted by tokenStorage (localStorage on web, SecureStore on native).
+// Writes are chained so a sign-out followed quickly by a sign-in cannot land out of order.
 export const apiConfigured = Boolean(baseUrl);
 export const setAccessToken = (token) => { accessToken = token; };
-export const setSession = (session) => { accessToken = session?.access_token || null; writeRefreshToken(session?.refresh_token || null); };
+export const setSession = (session) => {
+  accessToken = session?.access_token || null;
+  refreshToken = session?.refresh_token || null;
+  expiresAt = session?.expires_in ? Date.now() + session.expires_in * 1000 : 0;
+  const token = refreshToken;
+  storageWrite = storageWrite.then(() => writeRefreshToken(token));
+};
 export const clearSession = () => setSession(null);
 export const storedRefreshToken = readRefreshToken;
+export const hasSession = () => Boolean(accessToken);
+export const sessionExpiresSoon = (withinMs = 5 * 60 * 1000) => !expiresAt || expiresAt - Date.now() < withinMs;
+// AppState registers a local sign-out here; api() calls it when a 401 cannot be fixed by refreshing.
+export const onSessionExpired = (handler) => { sessionExpiredHandler = handler; };
+
+// Routes where a 401 means bad credentials, not an expired session.
+const PUBLIC_ROUTES = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/forgot-password', '/auth/mfa/verify'];
+
+// FormData bodies get no Content-Type so fetch can add the multipart boundary itself.
+const isFormData = (body) => typeof FormData !== 'undefined' && body instanceof FormData;
+
+const send = (path, options) => fetch(`${baseUrl}${path}`, {
+  ...options,
+  headers: {
+    ...(isFormData(options.body) ? {} : { 'Content-Type': 'application/json' }),
+    ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    ...options.headers,
+  },
+});
+
+// Exchange the refresh token for a new session. Resolves true on success and false if the server
+// rejects the token; rejects only on network errors. Concurrent callers share one request, because
+// Supabase refresh tokens are single use.
+export function refreshSession() {
+  if (!refreshing) {
+    refreshing = (async () => {
+      if (!baseUrl || !refreshToken) return false;
+      const response = await fetch(`${baseUrl}/auth/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refresh_token: refreshToken }) });
+      if (!response.ok) return false;
+      setSession(await response.json());
+      return true;
+    })().finally(() => { refreshing = null; });
+  }
+  return refreshing;
+}
 
 export async function api(path, options = {}) {
   if (!baseUrl) throw new Error('API URL is not configured.');
-  const response = await fetch(`${baseUrl}${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-      ...options.headers,
-    },
-  });
+  const sentToken = accessToken;
+  let response = await send(path, options);
+  // An expired access token: refresh once and retry. Skip the refresh if another request already renewed the token.
+  if (response.status === 401 && sentToken && !PUBLIC_ROUTES.includes(path)) {
+    const renewed = (accessToken && accessToken !== sentToken) || await refreshSession();
+    if (renewed) response = await send(path, options);
+    else {
+      clearSession();
+      sessionExpiredHandler?.();
+      throw new Error('Your session has expired. Please sign in again.');
+    }
+  }
   if (!response.ok) {
     let message = 'The request could not be completed.';
     try {
@@ -33,6 +81,19 @@ export async function api(path, options = {}) {
   }
   if (response.status === 204) return null;
   return response.json();
+}
+
+// Multipart upload through the same auth and 401-refresh handling as api().
+// React Native files are { uri, name, type } objects appended to the FormData.
+export const upload = (path, formData, options = {}) => api(path, { method: 'POST', ...options, body: formData });
+
+function depositForm({ account_id, amount, front, back }) {
+  const form = new FormData();
+  form.append('account_id', account_id);
+  form.append('amount', String(amount));
+  form.append('front_image', { uri: front.uri, name: 'front.jpg', type: front.mimeType || 'image/jpeg' });
+  form.append('back_image', { uri: back.uri, name: 'back.jpg', type: back.mimeType || 'image/jpeg' });
+  return form;
 }
 
 export const bankingApi = {
@@ -54,6 +115,8 @@ export const bankingApi = {
   notifications: () => api('/notifications'),
   markNotificationRead: (id) => api(`/notifications/${encodeURIComponent(id)}/read`, { method: 'PATCH' }),
   atms: (location) => api(`/atm/search?location=${encodeURIComponent(location)}`),
+  atmsNear: (latitude, longitude) => api(`/atm/search?lat=${encodeURIComponent(latitude)}&lng=${encodeURIComponent(longitude)}`),
+  depositCheck: (payload) => upload('/deposits', depositForm(payload)),
   managerCustomers: () => api('/manager/customers'),
   managerAccounts: () => api('/manager/accounts'),
   managerReports: () => api('/manager/reports'),
