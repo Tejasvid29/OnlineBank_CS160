@@ -6,10 +6,12 @@ from accounts import router as accounts_router
 from auth import require_role, router as auth_router
 from config import settings
 from db import get_supabase
+from transactions import router as transactions_router
 
 app = FastAPI(title="OnlineBank API")
 app.include_router(auth_router)
 app.include_router(accounts_router)
+app.include_router(transactions_router)
 
 app.add_middleware(
     CORSMiddleware,
