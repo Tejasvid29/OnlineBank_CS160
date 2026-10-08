@@ -70,6 +70,10 @@ export function AppProvider({ children }) {
   const [transferTo, setTransferTo] = useState('savings');
   const [transferAmount, setTransferAmount] = useState('');
   const [transferNote, setTransferNote] = useState('');
+  const [sendFrom, setSendFrom] = useState('');
+  const [sendRecipient, setSendRecipient] = useState('');
+  const [sendAmount, setSendAmount] = useState('');
+  const [sendNote, setSendNote] = useState('');
   const [payee, setPayee] = useState('');
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentDate, setPaymentDate] = useState('');
@@ -122,6 +126,7 @@ export function AppProvider({ children }) {
     setSelectedAccount(nextAccounts[0]?.id || 'all');
     setPaymentAccount(activeAccounts[0]?.id || '');
     setTransferFrom(activeAccounts[0]?.id || '');
+    setSendFrom(activeAccounts[0]?.id || '');
     setTransferTo(activeAccounts[1]?.id || '');
     setPayments(unwrap(paymentResult, 'payments'));
     setNotifications(unwrap(notificationResult, 'notifications'));
@@ -223,6 +228,7 @@ export function AppProvider({ children }) {
     setManagerData(initialManagerData); setManagerSearch(''); setManagerReportFilter('All'); setShowManagerReport(false);
     setSelectedAccount('checking'); setPaymentAccount('checking'); setShowCreateAccount(false); setNewAccountType('checking'); setPendingCloseId(null);
     setTransferFrom('checking'); setTransferTo('savings'); setTransferAmount(''); setTransferNote('');
+    setSendFrom(''); setSendRecipient(''); setSendAmount(''); setSendNote('');
     setPayee(''); setPaymentAmount(''); setPaymentDate(''); setFrequency('Once');
     setAtmSearch('San Francisco, CA'); setAtms(demoAtms);
     setTransactionSearch(''); setTransactionType('All'); setTransactionStart(''); setTransactionEnd('');
@@ -252,6 +258,30 @@ export function AppProvider({ children }) {
         ]);
       }
       setTransferAmount(''); setTransferNote(''); setNotice(`Transfer of ${money(amount)} completed.`, 'success');
+    } catch (error) { fail(error); }
+    finally { setBusy(false); }
+  }
+
+  async function submitSendMoney() {
+    const amount = Number(sendAmount);
+    const recipient = sendRecipient.replace(/\s/g, '');
+    const source = accounts.find((item) => item.id === sendFrom);
+    if (!source) { setNotice('Choose an account to send from.'); return; }
+    if (!/^\d{12}$/.test(recipient)) { setNotice("Enter the recipient's 12-digit account number."); return; }
+    if (recipient === source.account_number) { setNotice('Choose a different account to send to.'); return; }
+    if (!validMoney(sendAmount)) { setNotice('Enter an amount greater than $0 with up to two decimal places.'); return; }
+    if (amount > Number(source.balance)) { setNotice('The source account has insufficient funds.'); return; }
+    setBusy(true); setNotice('');
+    try {
+      if (apiConfigured) {
+        await bankingApi.sendMoney({ source_account_id: sendFrom, recipient_account_number: recipient, amount, description: sendNote });
+        await loadData();
+      } else {
+        setAccounts((current) => current.map((account) => account.id === sendFrom ? { ...account, balance: account.balance - amount } : account));
+        const stamp = new Date().toISOString();
+        setTransactions((current) => [{ id: `demo-send-${stamp}`, account_id: sendFrom, description: sendNote || `Sent to account ending ${recipient.slice(-4)}`, transaction_type: 'Transfer', amount: -amount, created_at: stamp, status: 'Completed' }, ...current]);
+      }
+      setSendRecipient(''); setSendAmount(''); setSendNote(''); setNotice(`Sent ${money(amount)} to account ending ${recipient.slice(-4)}.`, 'success');
     } catch (error) { fail(error); }
     finally { setBusy(false); }
   }
@@ -394,7 +424,8 @@ export function AppProvider({ children }) {
     newAccountType, setNewAccountType, pendingCloseId, setPendingCloseId,
     showNotifications, setShowNotifications, managerData, managerSearch, setManagerSearch, managerReportFilter,
     setManagerReportFilter, showManagerReport, setShowManagerReport, transferFrom, setTransferFrom, transferTo, setTransferTo,
-    transferAmount, setTransferAmount, transferNote, setTransferNote, payee, setPayee, paymentAmount, setPaymentAmount,
+    transferAmount, setTransferAmount, transferNote, setTransferNote, sendFrom, setSendFrom, sendRecipient, setSendRecipient,
+    sendAmount, setSendAmount, sendNote, setSendNote, submitSendMoney, payee, setPayee, paymentAmount, setPaymentAmount,
     paymentDate, setPaymentDate, frequency, setFrequency, atmSearch, setAtmSearch, atms, transactionSearch, setTransactionSearch,
     transactionType, setTransactionType, transactionStart, setTransactionStart, transactionEnd, setTransactionEnd, profileDraft,
     setProfileDraft, unread, isManager, total, visibleTransactions, accountOptions,

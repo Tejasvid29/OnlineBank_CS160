@@ -23,6 +23,8 @@ DB_ERRORS = {
     "insufficient_funds": (status.HTTP_409_CONFLICT, "Insufficient funds."),
     "same_account": (status.HTTP_400_BAD_REQUEST, "Choose two different accounts."),
     "invalid_amount": (status.HTTP_400_BAD_REQUEST, "Enter an amount greater than $0."),
+    "recipient_not_found": (status.HTTP_404_NOT_FOUND, "No active account matches that account number."),
+    "own_account": (status.HTTP_400_BAD_REQUEST, "That is your own account. Use Pay & transfer to move money between your accounts."),
 }
 
 
@@ -36,6 +38,13 @@ class TransferRequest(BaseModel):
     destination_account_id: str
     amount: Money
     transfer_type: str = "internal"
+    description: str = Field(default="", max_length=255)
+
+
+class SendMoneyRequest(BaseModel):
+    source_account_id: str
+    recipient_account_number: str = Field(pattern=r"^[0-9]{12}$")
+    amount: Money
     description: str = Field(default="", max_length=255)
 
 
@@ -116,3 +125,14 @@ def transfer(body: TransferRequest, user: dict = Depends(get_current_user), db: 
         "p_description": body.description,
     })
     return {"transactions": [_out(r) for r in rows]}
+
+
+@router.post("/transfers/send", status_code=status.HTTP_201_CREATED)
+def send_money(body: SendMoneyRequest, user: dict = Depends(get_current_user), db: Client = Depends(get_supabase)):
+    # Only the caller's own transaction row is returned; nothing about the recipient is revealed.
+    txn = _rpc(db, "post_customer_transfer", {
+        "p_user_id": user["id"], "p_source_id": body.source_account_id,
+        "p_recipient_number": body.recipient_account_number, "p_amount": str(body.amount),
+        "p_description": body.description,
+    })
+    return {"transaction": _out(txn)}
