@@ -109,6 +109,7 @@ export const bankingApi = {
   closeAccount: (id) => api(`/accounts/${encodeURIComponent(id)}/close`, { method: 'POST' }),
   transactions: (accountId) => api(`/accounts/${encodeURIComponent(accountId)}/transactions`),
   transfer: (payload) => api('/transfers', { method: 'POST', body: JSON.stringify(payload) }),
+  sendMoney: (payload) => api('/transfers/send', { method: 'POST', body: JSON.stringify(payload) }),
   payments: () => api('/bill-payments'),
   createPayment: (payload) => api('/bill-payments', { method: 'POST', body: JSON.stringify(payload) }),
   cancelPayment: (id) => api(`/bill-payments/${encodeURIComponent(id)}`, { method: 'DELETE' }),

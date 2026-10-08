@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 from supabase import Client
 
 from accounts import _get_own_account
@@ -23,6 +23,8 @@ DB_ERRORS = {
     "insufficient_funds": (status.HTTP_409_CONFLICT, "Insufficient funds."),
     "same_account": (status.HTTP_400_BAD_REQUEST, "Choose two different accounts."),
     "invalid_amount": (status.HTTP_400_BAD_REQUEST, "Enter an amount greater than $0."),
+    "recipient_not_found": (status.HTTP_404_NOT_FOUND, "We couldn't find a customer who can receive money at that email."),
+    "same_customer": (status.HTTP_400_BAD_REQUEST, "Use an account transfer to move money between your own accounts."),
 }
 
 
@@ -37,6 +39,13 @@ class TransferRequest(BaseModel):
     amount: Money
     transfer_type: str = "internal"
     description: str = Field(default="", max_length=255)
+
+
+class PersonToPersonRequest(BaseModel):
+    source_account_id: str
+    recipient_email: EmailStr
+    amount: Money
+    description: str = Field(default="", max_length=200)
 
 
 def _out(row: dict) -> dict:
@@ -116,3 +125,15 @@ def transfer(body: TransferRequest, user: dict = Depends(get_current_user), db: 
         "p_description": body.description,
     })
     return {"transactions": [_out(r) for r in rows]}
+
+
+@router.post("/transfers/send", status_code=status.HTTP_201_CREATED)
+def send_money(body: PersonToPersonRequest, user: dict = Depends(get_current_user), db: Client = Depends(get_supabase)):
+    _get_own_account(db, user["id"], body.source_account_id)
+    rows = _rpc(db, "post_p2p_transfer", {
+        "p_sender_id": user["id"], "p_source_id": body.source_account_id,
+        "p_recipient_email": body.recipient_email, "p_amount": str(body.amount),
+        "p_description": body.description,
+    })
+    # Only return the sender's own ledger row; the recipient's row belongs to them.
+    return {"transaction": next(_out(r) for r in rows if r["customer_id"] == user["id"])}
