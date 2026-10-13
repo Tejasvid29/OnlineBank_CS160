@@ -326,3 +326,259 @@ def test_login_success(monkeypatch):
         "email": "test@example.com",
         "password": "Password123!"
     })
+
+
+#test8 incorrect password
+def test_login_wrong_password(monkeypatch):
+    fake_db = MagicMock()
+    fake_auth_client = MagicMock()
+
+    class FakeAuthError(Exception):
+        pass
+
+    fake_auth_client.auth.sign_in_with_password.side_effect = FakeAuthError(
+        "Invalid login credentials"
+    )
+    monkeypatch.setattr(
+        auth,
+        "create_client",
+        lambda *args, **kwargs: fake_auth_client
+    )
+
+    monkeypatch.setattr(auth, "AuthApiError", FakeAuthError)
+
+    app.dependency_overrides[get_supabase] = lambda: fake_db
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/auth/login",
+                json={
+                    "email": "test@example.com",
+                    "password": "WrongPassword123!"
+                }
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 401
+
+    assert response.json()["detail"] == "Invalid email or password."
+
+    fake_auth_client.auth.sign_in_with_password.assert_called_once_with({
+        "email": "test@example.com",
+        "password": "WrongPassword123!"
+    })
+    fake_db.table.assert_not_called()
+
+
+#test9 invalid email
+def test_login_unregistered_email(monkeypatch):
+    fake_db = MagicMock()
+    fake_auth_client = MagicMock()
+
+    class FakeAuthError(Exception):
+        pass
+
+    fake_auth_client.auth.sign_in_with_password.side_effect = FakeAuthError(
+        "Invalid login credentials"
+    )
+
+    monkeypatch.setattr(
+        auth,
+        "create_client",
+        lambda *args, **kwargs: fake_auth_client
+    )
+
+    monkeypatch.setattr(auth, "AuthApiError", FakeAuthError)
+
+    app.dependency_overrides[get_supabase] = lambda: fake_db
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/auth/login",
+                json={
+                    "email": "unknown@example.com",
+                    "password": "Password123!"
+                }
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 401
+
+    assert response.json()["detail"] == "Invalid email or password."
+
+    fake_auth_client.auth.sign_in_with_password.assert_called_once()
+
+    fake_db.table.assert_not_called()
+
+
+#test10 empty email/password
+@pytest.mark.parametrize("email, password", [
+    ("", "Password123!"),
+    ("test@example.com", ""),
+    ("", "")
+])
+def test_login_empty_credentials(monkeypatch, email, password):
+    fake_db = MagicMock()
+    fake_create_client = MagicMock()
+
+    monkeypatch.setattr(
+        auth, "create_client", fake_create_client
+    )
+
+    app.dependency_overrides[get_supabase] = lambda: fake_db
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/auth/login",
+                json={
+                    "email": email,
+                    "password": password
+                }
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+
+    errors = response.json()["detail"]
+
+    if not email:
+        assert any(
+            error["loc"][-1] == "email"
+            for error in errors
+        )
+
+    if not password:
+        assert any(
+            error["loc"][-1] == "password"
+            for error in errors
+        )
+
+    fake_create_client.assert_not_called()
+
+
+#test11 invalid email format
+@pytest.mark.parametrize("invalid_email", [
+    "invalidemail",
+    "test@",
+    "@example.com",
+    "test.example.com"
+])
+def test_login_invalid_email(monkeypatch, invalid_email):
+    fake_db = MagicMock()
+    fake_auth_client = MagicMock()
+
+    monkeypatch.setattr(
+        auth,
+        "create_client",
+        fake_auth_client
+    )
+
+    app.dependency_overrides[get_supabase] = lambda: fake_db
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/auth/login",
+                json={
+                    "email": invalid_email,
+                    "password": "Password123!"
+                }
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+
+    errors = response.json()["detail"]
+
+    assert any(
+        error["loc"][-1] == "email"
+        for error in errors
+    )
+    fake_auth_client.assert_not_called()
+
+
+#test12 logout
+def test_logout_success():
+    fake_db = MagicMock()
+
+    app.dependency_overrides[get_supabase] = lambda: fake_db
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/auth/logout",
+                headers={
+                    "Authorization": "Bearer test_access_token"
+                }
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 204
+
+    assert response.content == b""
+
+    fake_db.auth.admin.sign_out.assert_called_once_with(
+        "test_access_token"
+    )
+
+
+#test 13 Unauthorized access after logout
+def test_access_after_logout():
+    fake_db = MagicMock()
+    token = "test_access_token"
+
+    profile = {
+        "id": "test_user_id",
+        "first_name": "Test",
+        "last_name": "User",
+        "email": "test@example.com",
+        "status": "active",
+        "role": "customer",
+        "phone_number": None
+    }
+
+    fake_db.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value.data = [profile]
+    revoked_tokens = set()
+
+    def fake_get_user(access_token):
+        if access_token in revoked_tokens:
+            return SimpleNamespace(user=None)
+
+        return SimpleNamespace(
+            user=SimpleNamespace(id="test_user_id")
+        )
+
+    def fake_sign_out(access_token):
+        revoked_tokens.add(access_token)
+
+    fake_db.auth.get_user.side_effect = fake_get_user
+    fake_db.auth.admin.sign_out.side_effect = fake_sign_out
+
+    app.dependency_overrides[get_supabase] = lambda: fake_db
+
+    try:
+        with TestClient(app) as client:
+            headers = {
+                "Authorization": f"Bearer {token}"
+            }
+            before = client.get("/auth/me", headers=headers)
+            logout = client.post("/auth/logout", headers=headers)
+            after = client.get("/auth/me", headers=headers)
+
+    finally:
+        app.dependency_overrides.clear()
+
+    assert before.status_code == 200
+    assert logout.status_code == 204
+    assert after.status_code == 401
+
+    fake_db.auth.admin.sign_out.assert_called_once_with(token)
+
