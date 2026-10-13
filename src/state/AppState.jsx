@@ -288,12 +288,14 @@ export function AppProvider({ children }) {
 
   async function submitPayment() {
     const amount = Number(paymentAmount);
+    const fromAccount = paymentAccount || accounts.find(isActivated)?.id;
     if (!payee.trim()) { setNotice('Enter a payee name.'); return; }
+    if (!fromAccount) { setNotice('Choose an open account to pay from.'); return; }
     if (!validMoney(paymentAmount)) { setNotice('Enter an amount greater than $0 with up to two decimal places.'); return; }
     if (!validDate(paymentDate) || paymentDate < todayString()) { setNotice('Enter a valid date today or later as YYYY-MM-DD.'); return; }
     setBusy(true); setNotice('');
     try {
-      const payload = { account_id: paymentAccount || accounts[0]?.id, recipient: payee.trim(), amount, next_payment_date: paymentDate, frequency: frequency.toLowerCase() };
+      const payload = { account_id: fromAccount, recipient: payee.trim(), amount, next_payment_date: paymentDate, frequency: frequency.toLowerCase() };
       if (apiConfigured) { await bankingApi.createPayment(payload); await loadData(); }
       else setPayments((current) => [{ ...payload, id: `demo-${Date.now()}`, frequency, status: 'Scheduled' }, ...current]);
       setPayee(''); setPaymentAmount(''); setPaymentDate(''); setNotice('Your payment was scheduled.', 'success');

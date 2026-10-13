@@ -76,6 +76,8 @@ export async function api(path, options = {}) {
     try {
       const body = await response.json();
       message = body.detail || body.message || message;
+      // FastAPI validation errors (422) come back as a list of { msg, loc }.
+      if (Array.isArray(message)) message = message[0]?.msg?.replace(/^Value error, /, '') || 'Check your entries and try again.';
     } catch { /* Keep a safe generic message. */ }
     throw new Error(typeof message === 'string' ? message : 'The request could not be completed.');
   }
