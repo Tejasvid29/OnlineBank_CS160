@@ -7,7 +7,10 @@
     "start": "expo start",
     "web": "expo start --web",
     "build:web": "expo export --platform web",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "@expo/metro-runtime": "~57.0.16",
@@ -31,6 +34,7 @@
     "react-native-web": "^0.21.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@types/react": "^19.2.0",
     "typescript": "^5.9.0"
   }
