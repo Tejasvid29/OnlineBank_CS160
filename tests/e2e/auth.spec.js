@@ -79,10 +79,10 @@ test('registers a new user', async ({ page }) => {
   await expect(
   page.getByText('An account with this email already exists.')
   ).toBeVisible();
-});
+  });
 
   //test incorrect email
-test('rejects unregistered email', async ({ page }) => {
+ test('rejects unregistered email', async ({ page }) => {
   await page.goto('/');
 
   await page.getByLabel('Email address').fill(
