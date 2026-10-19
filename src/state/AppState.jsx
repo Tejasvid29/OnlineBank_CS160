@@ -347,7 +347,7 @@ export function AppProvider({ children }) {
     finally { setBusy(false); }
   }
 
-  // Native ATM search from GPS coordinates. API mode needs GET /atm/search?lat=&lng= (not built yet).
+  // Native ATM search from GPS coordinates. API mode uses GET /atm/search?lat=&lng=.
   async function findAtmsNear(position, label) {
     if (label) setAtmSearch(label);
     setBusy(true); setNotice('');

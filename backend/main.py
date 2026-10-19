@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from supabase import Client
 
 from accounts import router as accounts_router
+from atms import router as atms_router
 from auth import require_role, router as auth_router
 from bill_payments import router as bill_payments_router
 from config import settings
@@ -14,6 +15,7 @@ app.include_router(auth_router)
 app.include_router(accounts_router)
 app.include_router(transactions_router)
 app.include_router(bill_payments_router)
+app.include_router(atms_router)
 
 app.add_middleware(
     CORSMiddleware,

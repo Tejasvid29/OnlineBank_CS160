@@ -60,5 +60,6 @@ export default function Atms() {
         </View>
       </View>) : <Text style={styles.emptyText}>No ATMs found for this location.</Text>}
     </Card>
+    <Text style={[styles.rowSub, { marginTop: 8 }]}>Powered by Geoapify · © OpenStreetMap contributors</Text>
   </>;
 }

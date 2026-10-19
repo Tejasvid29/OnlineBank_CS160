@@ -17,7 +17,7 @@ The low-level design and high-level test plan guided the screen list, API route 
 | Authentication and session | Supabase Auth + JWT | FastAPI registers users and signs them in through Supabase. The access token (JWT) is sent as a bearer token and validated with Supabase on every request, so logout takes effect immediately. The refresh token is stored in `localStorage` on web (memory only on native) and used to restore the session after a reload. |
 | Authorization | FastAPI role checks + Supabase RLS | `require_role(...)` in `backend/auth.py` enforces roles server side. The UI also hides manager navigation, but that is a convenience only. Inactive users are rejected at login and on every request. |
 | Data and storage | Supabase PostgreSQL and S3 | `public.users` (schema in the ReadMe) is the only table so far. The backend uses the secret key, which bypasses RLS, so ownership checks must be written in FastAPI. |
-| ATM and notifications | Maps/Places API and notification service | Not built. Demo mode supplies sample locations and messages. |
+| ATM and notifications | Geoapify geocoding + Places (ATMs; needs `GEOAPIFY_API_KEY`) and notification service | ATM search built (`backend/atms.py`). Notifications not built. Demo mode supplies sample locations and messages. |
 
 The intended live request flow is:
 
@@ -54,7 +54,7 @@ The high-level test plan's usability goals informed readable labels, high-contra
 | Bill payments | Schedule, view, and cancel payments; validates amount and date | `/bill-payments` |
 | Activity | Account, description, type, and date filters | `GET /accounts/{id}/transactions` |
 | Notifications | Unread count, list, and mark read | `GET /notifications`, `PATCH /notifications/{id}/read` |
-| ATM search | Search field, results, and directions link | `GET /atm/search`; backend Maps/Places integration |
+| ATM search | Search field, results, and directions link | `GET /atm/search` (built; Geoapify, Chase ATMs only) |
 | Profile | Editable in demo; read-only save action in API mode | Dedicated profile update route has not been specified |
 | Manager | Customer/account search and filtered balance summary; staff-only navigation | `/manager/customers` built (admin only); `/manager/accounts` and `/manager/reports` not built, so the dashboard shows an error in API mode |
 | Check deposit | Explains the mobile capture flow | Mobile app, image storage, OCR/check service |
@@ -74,7 +74,7 @@ Confirm these with the backend team before building them:
 2. Transfer creation accepts `source_account_id`, `destination_account_id`, `amount`, `transfer_type: "internal"`, and `description`. The server must make balance changes and transaction records atomic, reject insufficient funds and unauthorized access, and prevent duplicate requests.
 3. Payment creation accepts `account_id`, `recipient`, `amount`, `next_payment_date`, and `frequency`. The backend owns scheduling, processing, and duplicate prevention.
 4. Account creation sends `account_type` and `initial_deposit`. Closure uses `DELETE /accounts/{id}`. The server must reject closure with unresolved transactions and preserve history.
-5. `GET /atm/search` is called with a `location` text query; the chosen map API may need coordinates instead.
+5. `GET /atm/search` is called with a `location` text query or `lat`/`lng`; the backend geocodes text and searches for Chase ATMs through Geoapify.
 6. A dedicated profile update endpoint is still needed. The UI avoids sending personal details elsewhere.
 7. MFA (`mfa_required` on login, `/auth/mfa/verify`) and the password-reset link landing page (a "set new password" screen) need a shared design.
 
@@ -90,7 +90,7 @@ Important limits:
 
 - `npm run check` runs TypeScript with `checkJs: false`; it does not type-check the JavaScript screens. The web build verifies that they bundle.
 - There are no automated unit, backend, or Playwright tests yet; the auth checks above were run by hand. The registration and login UI has not been exercised in a browser against the live API.
-- Real MFA, external ATM search, and payment processing do not exist yet.
+- Real MFA and payment processing do not exist yet.
 - The client-side manager menu and validation are usability controls only. Every new backend route needs `get_current_user` or `require_role(...)`, ownership checks (the secret key bypasses RLS), and atomic financial operations.
 
 ## Recommended next steps
