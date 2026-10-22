@@ -56,6 +56,7 @@ export function AppProvider({ children }) {
   const [transactions, setTransactions] = useState(apiConfigured ? [] : demoTransactions);
   const [payments, setPayments] = useState(apiConfigured ? [] : demoPayments);
   const [notifications, setNotifications] = useState(apiConfigured ? [] : demoNotifications);
+  const [checkDeposits, setCheckDeposits] = useState([]);
   const [selectedAccount, setSelectedAccount] = useState('checking');
   const [paymentAccount, setPaymentAccount] = useState('checking');
   const [showCreateAccount, setShowCreateAccount] = useState(false);
@@ -111,10 +112,10 @@ export function AppProvider({ children }) {
 
   async function loadData() {
     if (!apiConfigured) return;
-    // Banking endpoints are optional while the backend is built out; a missing one must not block sign-in.
+    // A missing ancillary endpoint must not block sign-in.
     const optional = (request) => request.catch(() => []);
-    const [me, accountResult, paymentResult, notificationResult] = await Promise.all([
-      bankingApi.me(), optional(bankingApi.accounts()), optional(bankingApi.payments()), optional(bankingApi.notifications()),
+    const [me, accountResult, paymentResult, notificationResult, depositResult] = await Promise.all([
+      bankingApi.me(), optional(bankingApi.accounts()), optional(bankingApi.payments()), optional(bankingApi.notifications()), bankingApi.checkDeposits().catch(() => null),
     ]);
     const nextProfile = me.profile || me;
     const nextAccounts = unwrap(accountResult, 'accounts');
@@ -130,6 +131,7 @@ export function AppProvider({ children }) {
     setTransferTo(activeAccounts[1]?.id || '');
     setPayments(unwrap(paymentResult, 'payments'));
     setNotifications(unwrap(notificationResult, 'notifications'));
+    if (depositResult !== null) setCheckDeposits(unwrap(depositResult, 'deposits'));
     setTransactions(lists.flatMap((result) => unwrap(result, 'transactions')));
   }
 
@@ -368,22 +370,32 @@ export function AppProvider({ children }) {
     return '';
   }
 
-  // front/back are image-picker assets ({ uri, mimeType }). Resolves true when the deposit was submitted.
+  // front/back are image-picker assets ({ uri, mimeType }). Returns the pending record on success.
   async function submitDeposit({ accountId, amount, front, back }) {
     const error = depositError(accountId, amount) || (!front || !back ? 'Photograph the front and back of the check.' : '');
     if (error) { setNotice(error); return false; }
     const value = Number(amount);
     setBusy(true); setNotice('');
     try {
-      if (apiConfigured) { await bankingApi.depositCheck({ account_id: accountId, amount: value, front, back }); await loadData(); }
-      else {
+      let deposit;
+      let repeated = false;
+      if (apiConfigured) {
+        const response = await bankingApi.depositCheck({ account_id: accountId, amount: value, front, back });
+        deposit = response.deposit;
+        repeated = Boolean(response.already_submitted);
+        setCheckDeposits((current) => [deposit, ...current.filter((item) => item.id !== deposit.id)]);
+        // An accepted upload is still a success if the subsequent dashboard refresh fails.
+        try { await loadData(); } catch { /* The pending reference remains visible on this screen. */ }
+      } else {
         // Demo: the deposit waits for review, so balances stay the same until it clears.
         const stamp = new Date().toISOString();
+        deposit = { id: `demo-deposit-${stamp}`, account_id: accountId, amount: value, status: 'pending', created_at: stamp };
+        setCheckDeposits((current) => [deposit, ...current]);
         setTransactions((current) => [{ id: `demo-deposit-${stamp}`, account_id: accountId, description: 'Mobile check deposit', transaction_type: 'Deposit', amount: value, created_at: stamp, status: 'Pending' }, ...current]);
         setNotifications((current) => [{ id: `demo-n-${stamp}`, notification_type: 'Deposit', message: `Your check deposit of ${money(value)} was received and is pending review.`, created_at: stamp, read: false }, ...current]);
       }
-      setNotice(`Check deposit of ${money(value)} submitted for review.`, 'success');
-      return true;
+      setNotice(repeated ? 'This check was already submitted and remains pending review.' : `Check deposit of ${money(value)} submitted for review.`, 'success');
+      return deposit;
     } catch (failure) { fail(failure); return false; }
     finally { setBusy(false); }
   }
@@ -422,6 +434,7 @@ export function AppProvider({ children }) {
   const value = {
     compact, signedIn, setSignedIn, restoring, registerDraft, setRegisterDraft, register, authView, setAuthView, email, setEmail, password, setPassword, mfaCode, setMfaCode,
     busy, notice, noticeKind, setNotice, profile, setProfile, accounts, setAccounts, transactions, setTransactions, payments, setPayments,
+    checkDeposits,
     notifications, setNotifications, selectedAccount, setSelectedAccount, paymentAccount, setPaymentAccount, showCreateAccount, setShowCreateAccount,
     newAccountType, setNewAccountType, pendingCloseId, setPendingCloseId,
     showNotifications, setShowNotifications, managerData, managerSearch, setManagerSearch, managerReportFilter,

@@ -119,6 +119,7 @@ export const bankingApi = {
   markNotificationRead: (id) => api(`/notifications/${encodeURIComponent(id)}/read`, { method: 'PATCH' }),
   atms: (location) => api(`/atm/search?location=${encodeURIComponent(location)}`),
   atmsNear: (latitude, longitude) => api(`/atm/search?lat=${encodeURIComponent(latitude)}&lng=${encodeURIComponent(longitude)}`),
+  checkDeposits: () => api('/deposits'),
   depositCheck: (payload) => upload('/deposits', depositForm(payload)),
   managerCustomers: () => api('/manager/customers'),
   managerAccounts: () => api('/manager/accounts'),

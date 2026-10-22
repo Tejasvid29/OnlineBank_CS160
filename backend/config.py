@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     supabase_jwks_url: str = ""
     # Free key from geoapify.com. Server-side only; ATM search returns 503 until it is set.
     geoapify_api_key: str = ""
+    check_deposit_bucket: str = "check-deposits"
     cors_origins: str = "http://localhost:8081,http://localhost:19006"
 
 

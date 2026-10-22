@@ -1,6 +1,6 @@
 # CS160 Bank
 
-CS160 Bank is a class online banking project: a **React Native / Expo (web)** client in the repository root and a **FastAPI + Supabase** backend in `backend/`. The client presents accounts and balances, transfers, bill payments, transaction history, ATM search, notifications, profile settings, and a staff dashboard in one responsive interface.
+CS160 Bank is a class online banking project: a **React Native / Expo** client for web, iOS, and Android in the repository root and a **FastAPI + Supabase** backend in `backend/`. The client presents accounts and balances, transfers, bill payments, transaction history, mobile check deposits, ATM search, notifications, profile settings, and a staff dashboard.
 
 The interface takes its blue-and-white palette and navigation from Chase's web design. It uses its own **CS160 Bank** name and icon; it is not a Chase product.
 
@@ -9,6 +9,7 @@ The interface takes its blue-and-white palette and navigation from Chase's web d
 - Node.js 20+ and npm
 - Python 3.11+
 - A Supabase project (for API mode). Demo mode needs no backend.
+- An iOS simulator, Android emulator, or phone with Expo Go for the native app.
 
 ## 1. Run the web app (demo mode)
 
@@ -79,10 +80,22 @@ npm run web              # restart Expo after changing .env
 
 `EXPO_PUBLIC_API_URL` is embedded in the browser bundle, so it must hold only the API origin, never a secret. With it set, the app runs in **API mode**: use **Create an account** on the login screen to register, then sign in.
 
+## 4. Run the mobile app and check deposit flow
+
+```bash
+npm start
+```
+
+Open the project in an iOS simulator, Android emulator, or Expo Go. The **Deposit** tab walks through account and amount selection, front and back photos, review, and submission. Without an API URL, the flow creates only a pending demo record and does not change the balance. For API mode on a physical phone, set `EXPO_PUBLIC_API_URL` to a backend address reachable from that phone; `localhost` on the phone is the phone itself.
+
+Before API-mode check deposits, the Supabase project needs `public.users` and `public.accounts` (the repository does not include an accounts-table migration). Run `backend/sql/transactions.sql` after those tables exist, then run `backend/sql/check_deposits.sql` in the Supabase SQL editor. This creates a **private** `check-deposits` Storage bucket, the check-deposit table, and an atomic database function for a pending ledger entry. The backend needs `python-multipart` and `Pillow`, both included in `backend/requirements.txt`. If the bucket name is changed, set `CHECK_DEPOSIT_BUCKET` in `backend/.env` to match it.
+
+`POST /deposits` accepts multipart `account_id`, `amount`, `front_image`, and `back_image`. It validates account ownership and the photos, strips image metadata, stores them privately, and records a pending check deposit and pending transaction. `GET /deposits` returns the customer's recent deposits without image paths. Repeating the same photos for the same pending deposit returns its existing record. **Submission never increases the balance.** OCR, check verification, reviewer approval, and fund availability still need to be built before any deposit can be credited.
+
 ## Authentication and authorization
 
 - Supabase Auth issues a JWT access token and a refresh token. The frontend sends `Authorization: Bearer <access token>`; the backend validates it with Supabase on every request, so logout takes effect immediately.
-- On web, the refresh token is kept in `localStorage` so a reload restores the session. On native it stays in memory.
+- On web, the refresh token is kept in `localStorage` so a reload restores the session. On native it is kept in Expo SecureStore.
 - `get_current_user` (authentication) and `require_role("admin")` (authorization) are in `backend/auth.py`.
 
 | Route | Access |
@@ -103,6 +116,7 @@ npm run web              # restart Expo after changing .env
 | `src/theme.js`, `src/styles/` | Colors, formatting, and styles |
 | `backend/main.py` | FastAPI app, CORS, health checks, admin routes |
 | `backend/auth.py` | Auth routes and the auth/role dependencies |
+| `backend/deposits.py`, `backend/sql/check_deposits.sql` | Private mobile check intake and pending-record schema |
 | `backend/config.py`, `backend/db.py` | Settings from `.env` and the Supabase client |
 | `PROJECT_HANDOFF.md` | Architecture, design choices, status, and next steps |
 
@@ -111,6 +125,7 @@ npm run web              # restart Expo after changing .env
 ```bash
 npm run check
 npm run build:web
+backend/.venv/bin/pytest -q backend/Tests
 ```
 
-Automated end-to-end tests are still pending. See [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md) for the full handoff.
+The repository also includes browser tests under `tests/e2e/`. Live check OCR and settlement tests are still pending. See [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md) for the full handoff.
