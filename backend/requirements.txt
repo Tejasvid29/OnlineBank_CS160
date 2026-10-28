@@ -3,3 +3,6 @@ uvicorn[standard]
 supabase
 pydantic-settings
 email-validator
+httpx
+python-multipart
+Pillow

@@ -10,10 +10,10 @@ import { useApp } from '../src/state/AppState';
 export default function Payments() {
   const {
     payee, setPayee, paymentAccount, setPaymentAccount, accounts, paymentAmount, setPaymentAmount,
-    paymentDate, setPaymentDate, frequency, setFrequency, submitPayment, busy, payments, cancelPayment,
+    paymentDate, setPaymentDate, frequency, setFrequency, submitPayment, busy, payments, cancelPayment, navigate,
   } = useApp();
   const options = accounts.filter(isActivated).map((item) => ({ value: item.id, label: `${titleCase(item.account_type)} ${item.account_number}`, detail: `Balance ${money(item.balance)}` }));
-  const fromId = paymentAccount || accounts[0]?.id;
+  const fromId = paymentAccount || options[0]?.value;
   const source = accounts.find((item) => item.id === fromId);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -25,11 +25,17 @@ export default function Payments() {
   return <>
     <Card style={styles.nativeCard}>
       <Field label="Payee" value={payee} onChangeText={setPayee} placeholder="Business or person" autoCapitalize="words" />
-      <Select label="Pay from" value={fromId} options={options} onChange={setPaymentAccount}
-        labelRight={source && <Text style={styles.nativeLabelRight}>Balance <Text style={styles.nativeLabelRightStrong}>{money(source.balance)}</Text></Text>} />
+      {options.length
+        ? <Select label="Pay from" value={fromId} options={options} onChange={setPaymentAccount}
+          labelRight={source && <Text style={styles.nativeLabelRight}>Balance <Text style={styles.nativeLabelRightStrong}>{money(source.balance)}</Text></Text>} />
+        : <View style={styles.field}>
+          <Text style={styles.fieldLabel}>Pay from</Text>
+          <Text style={styles.bodyText}>You need an open account to schedule payments.</Text>
+          <LinkButton onPress={() => navigate('/accounts')} icon="arrow-forward">Open an account</LinkButton>
+        </View>}
       <Field label="Amount" value={paymentAmount} onChangeText={setPaymentAmount} keyboardType="decimal-pad" placeholder="0.00" />
       <DateField label="Payment date" value={paymentDate} onChange={setPaymentDate} minimumDate={today} />
-      <Choice label="Repeat" value={frequency} options={['Once', 'Weekly', 'Monthly'].map((value) => ({ label: value, value }))} onChange={setFrequency} />
+      <Choice label="Repeat" value={frequency} options={['Once', 'Daily', 'Weekly', 'Monthly'].map((value) => ({ label: value, value }))} onChange={setFrequency} />
       <Action onPress={submitPayment} disabled={busy} icon="calendar-outline" style={styles.nativeFullAction}>{busy ? 'Working…' : 'Schedule payment'}</Action>
     </Card>
 

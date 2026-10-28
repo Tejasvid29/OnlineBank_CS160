@@ -6,7 +6,7 @@ import { Collapsible, DateField, Select, fromYmd } from '../src/ui/mobilePrimiti
 import { ActivityRows } from '../src/components/ActivityRows';
 import { useApp } from '../src/state/AppState';
 
-const TYPES = ['All', 'Deposit', 'Transfer', 'Bill payment', 'Card purchase'];
+const TYPES = ['All', 'Deposit', 'Withdrawal', 'Transfer', 'Bill payment', 'Card purchase'];
 
 // Native activity: search on top, filters (account, type, date range) folded into one section, then the list.
 export default function Activity() {

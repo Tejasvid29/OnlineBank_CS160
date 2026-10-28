@@ -9,7 +9,7 @@ export default function Payments() {
   const {
     notice, payee, setPayee, paymentAccount, setPaymentAccount, accountOptions, accounts, paymentAmount,
     setPaymentAmount, paymentDate, setPaymentDate, frequency, setFrequency, submitPayment, busy, payments,
-    cancelPayment, compact,
+    cancelPayment, compact, navigate,
   } = useApp();
 
   return <>
@@ -19,10 +19,12 @@ export default function Payments() {
       <Card style={styles.formCard}>
         <Text style={styles.cardTitle}>Schedule a payment</Text>
         <Field label="Payee" value={payee} onChangeText={setPayee} placeholder="Business or person" />
-        <Choice label="Pay from" value={paymentAccount || accounts[0]?.id} options={accountOptions} onChange={setPaymentAccount} />
+        {accountOptions.length
+          ? <Choice label="Pay from" value={paymentAccount || accountOptions[0].value} options={accountOptions} onChange={setPaymentAccount} />
+          : <View style={styles.field}><Text style={styles.fieldLabel}>Pay from</Text><Text style={styles.bodyText}>You need an open account to schedule payments.</Text><LinkButton onPress={() => navigate('/accounts')} icon="arrow-forward">Open an account</LinkButton></View>}
         <Field label="Amount" value={paymentAmount} onChangeText={setPaymentAmount} keyboardType="decimal-pad" placeholder="0.00" />
         <Field label="Payment date" value={paymentDate} onChangeText={setPaymentDate} placeholder="YYYY-MM-DD" accessibilityHint="Enter a date in year-month-day format" />
-        <Choice label="Repeat" value={frequency} options={['Once', 'Weekly', 'Monthly'].map((value) => ({ label: value, value }))} onChange={setFrequency} />
+        <Choice label="Repeat" value={frequency} options={['Once', 'Daily', 'Weekly', 'Monthly'].map((value) => ({ label: value, value }))} onChange={setFrequency} />
         <Action onPress={submitPayment} disabled={busy} icon="calendar-outline">{busy ? 'Working…' : 'Schedule payment'}</Action>
       </Card>
       <Card style={styles.columnCard}>

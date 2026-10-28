@@ -56,6 +56,7 @@ export function AppProvider({ children }) {
   const [transactions, setTransactions] = useState(apiConfigured ? [] : demoTransactions);
   const [payments, setPayments] = useState(apiConfigured ? [] : demoPayments);
   const [notifications, setNotifications] = useState(apiConfigured ? [] : demoNotifications);
+  const [checkDeposits, setCheckDeposits] = useState([]);
   const [selectedAccount, setSelectedAccount] = useState('checking');
   const [paymentAccount, setPaymentAccount] = useState('checking');
   const [showCreateAccount, setShowCreateAccount] = useState(false);
@@ -70,6 +71,10 @@ export function AppProvider({ children }) {
   const [transferTo, setTransferTo] = useState('savings');
   const [transferAmount, setTransferAmount] = useState('');
   const [transferNote, setTransferNote] = useState('');
+  const [sendFrom, setSendFrom] = useState('');
+  const [sendRecipient, setSendRecipient] = useState('');
+  const [sendAmount, setSendAmount] = useState('');
+  const [sendNote, setSendNote] = useState('');
   const [payee, setPayee] = useState('');
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentDate, setPaymentDate] = useState('');
@@ -107,10 +112,10 @@ export function AppProvider({ children }) {
 
   async function loadData() {
     if (!apiConfigured) return;
-    // Banking endpoints are optional while the backend is built out; a missing one must not block sign-in.
+    // A missing ancillary endpoint must not block sign-in.
     const optional = (request) => request.catch(() => []);
-    const [me, accountResult, paymentResult, notificationResult] = await Promise.all([
-      bankingApi.me(), optional(bankingApi.accounts()), optional(bankingApi.payments()), optional(bankingApi.notifications()),
+    const [me, accountResult, paymentResult, notificationResult, depositResult] = await Promise.all([
+      bankingApi.me(), optional(bankingApi.accounts()), optional(bankingApi.payments()), optional(bankingApi.notifications()), bankingApi.checkDeposits().catch(() => null),
     ]);
     const nextProfile = me.profile || me;
     const nextAccounts = unwrap(accountResult, 'accounts');
@@ -122,9 +127,11 @@ export function AppProvider({ children }) {
     setSelectedAccount(nextAccounts[0]?.id || 'all');
     setPaymentAccount(activeAccounts[0]?.id || '');
     setTransferFrom(activeAccounts[0]?.id || '');
+    setSendFrom(activeAccounts[0]?.id || '');
     setTransferTo(activeAccounts[1]?.id || '');
     setPayments(unwrap(paymentResult, 'payments'));
     setNotifications(unwrap(notificationResult, 'notifications'));
+    if (depositResult !== null) setCheckDeposits(unwrap(depositResult, 'deposits'));
     setTransactions(lists.flatMap((result) => unwrap(result, 'transactions')));
   }
 
@@ -223,6 +230,7 @@ export function AppProvider({ children }) {
     setManagerData(initialManagerData); setManagerSearch(''); setManagerReportFilter('All'); setShowManagerReport(false);
     setSelectedAccount('checking'); setPaymentAccount('checking'); setShowCreateAccount(false); setNewAccountType('checking'); setPendingCloseId(null);
     setTransferFrom('checking'); setTransferTo('savings'); setTransferAmount(''); setTransferNote('');
+    setSendFrom(''); setSendRecipient(''); setSendAmount(''); setSendNote('');
     setPayee(''); setPaymentAmount(''); setPaymentDate(''); setFrequency('Once');
     setAtmSearch('San Francisco, CA'); setAtms(demoAtms);
     setTransactionSearch(''); setTransactionType('All'); setTransactionStart(''); setTransactionEnd('');
@@ -256,14 +264,40 @@ export function AppProvider({ children }) {
     finally { setBusy(false); }
   }
 
+  async function submitSendMoney() {
+    const amount = Number(sendAmount);
+    const recipient = sendRecipient.replace(/\s/g, '');
+    const source = accounts.find((item) => item.id === sendFrom);
+    if (!source) { setNotice('Choose an account to send from.'); return; }
+    if (!/^\d{12}$/.test(recipient)) { setNotice("Enter the recipient's 12-digit account number."); return; }
+    if (recipient === source.account_number) { setNotice('Choose a different account to send to.'); return; }
+    if (!validMoney(sendAmount)) { setNotice('Enter an amount greater than $0 with up to two decimal places.'); return; }
+    if (amount > Number(source.balance)) { setNotice('The source account has insufficient funds.'); return; }
+    setBusy(true); setNotice('');
+    try {
+      if (apiConfigured) {
+        await bankingApi.sendMoney({ source_account_id: sendFrom, recipient_account_number: recipient, amount, description: sendNote });
+        await loadData();
+      } else {
+        setAccounts((current) => current.map((account) => account.id === sendFrom ? { ...account, balance: account.balance - amount } : account));
+        const stamp = new Date().toISOString();
+        setTransactions((current) => [{ id: `demo-send-${stamp}`, account_id: sendFrom, description: sendNote || `Sent to account ending ${recipient.slice(-4)}`, transaction_type: 'Transfer', amount: -amount, created_at: stamp, status: 'Completed' }, ...current]);
+      }
+      setSendRecipient(''); setSendAmount(''); setSendNote(''); setNotice(`Sent ${money(amount)} to account ending ${recipient.slice(-4)}.`, 'success');
+    } catch (error) { fail(error); }
+    finally { setBusy(false); }
+  }
+
   async function submitPayment() {
     const amount = Number(paymentAmount);
+    const fromAccount = paymentAccount || accounts.find(isActivated)?.id;
     if (!payee.trim()) { setNotice('Enter a payee name.'); return; }
+    if (!fromAccount) { setNotice('Choose an open account to pay from.'); return; }
     if (!validMoney(paymentAmount)) { setNotice('Enter an amount greater than $0 with up to two decimal places.'); return; }
     if (!validDate(paymentDate) || paymentDate < todayString()) { setNotice('Enter a valid date today or later as YYYY-MM-DD.'); return; }
     setBusy(true); setNotice('');
     try {
-      const payload = { account_id: paymentAccount || accounts[0]?.id, recipient: payee.trim(), amount, next_payment_date: paymentDate, frequency: frequency.toLowerCase() };
+      const payload = { account_id: fromAccount, recipient: payee.trim(), amount, next_payment_date: paymentDate, frequency: frequency.toLowerCase() };
       if (apiConfigured) { await bankingApi.createPayment(payload); await loadData(); }
       else setPayments((current) => [{ ...payload, id: `demo-${Date.now()}`, frequency, status: 'Scheduled' }, ...current]);
       setPayee(''); setPaymentAmount(''); setPaymentDate(''); setNotice('Your payment was scheduled.', 'success');
@@ -315,7 +349,7 @@ export function AppProvider({ children }) {
     finally { setBusy(false); }
   }
 
-  // Native ATM search from GPS coordinates. API mode needs GET /atm/search?lat=&lng= (not built yet).
+  // Native ATM search from GPS coordinates. API mode uses GET /atm/search?lat=&lng=.
   async function findAtmsNear(position, label) {
     if (label) setAtmSearch(label);
     setBusy(true); setNotice('');
@@ -336,22 +370,32 @@ export function AppProvider({ children }) {
     return '';
   }
 
-  // front/back are image-picker assets ({ uri, mimeType }). Resolves true when the deposit was submitted.
+  // front/back are image-picker assets ({ uri, mimeType }). Returns the pending record on success.
   async function submitDeposit({ accountId, amount, front, back }) {
     const error = depositError(accountId, amount) || (!front || !back ? 'Photograph the front and back of the check.' : '');
     if (error) { setNotice(error); return false; }
     const value = Number(amount);
     setBusy(true); setNotice('');
     try {
-      if (apiConfigured) { await bankingApi.depositCheck({ account_id: accountId, amount: value, front, back }); await loadData(); }
-      else {
+      let deposit;
+      let repeated = false;
+      if (apiConfigured) {
+        const response = await bankingApi.depositCheck({ account_id: accountId, amount: value, front, back });
+        deposit = response.deposit;
+        repeated = Boolean(response.already_submitted);
+        setCheckDeposits((current) => [deposit, ...current.filter((item) => item.id !== deposit.id)]);
+        // An accepted upload is still a success if the subsequent dashboard refresh fails.
+        try { await loadData(); } catch { /* The pending reference remains visible on this screen. */ }
+      } else {
         // Demo: the deposit waits for review, so balances stay the same until it clears.
         const stamp = new Date().toISOString();
+        deposit = { id: `demo-deposit-${stamp}`, account_id: accountId, amount: value, status: 'pending', created_at: stamp };
+        setCheckDeposits((current) => [deposit, ...current]);
         setTransactions((current) => [{ id: `demo-deposit-${stamp}`, account_id: accountId, description: 'Mobile check deposit', transaction_type: 'Deposit', amount: value, created_at: stamp, status: 'Pending' }, ...current]);
         setNotifications((current) => [{ id: `demo-n-${stamp}`, notification_type: 'Deposit', message: `Your check deposit of ${money(value)} was received and is pending review.`, created_at: stamp, read: false }, ...current]);
       }
-      setNotice(`Check deposit of ${money(value)} submitted for review.`, 'success');
-      return true;
+      setNotice(repeated ? 'This check was already submitted and remains pending review.' : `Check deposit of ${money(value)} submitted for review.`, 'success');
+      return deposit;
     } catch (failure) { fail(failure); return false; }
     finally { setBusy(false); }
   }
@@ -390,11 +434,13 @@ export function AppProvider({ children }) {
   const value = {
     compact, signedIn, setSignedIn, restoring, registerDraft, setRegisterDraft, register, authView, setAuthView, email, setEmail, password, setPassword, mfaCode, setMfaCode,
     busy, notice, noticeKind, setNotice, profile, setProfile, accounts, setAccounts, transactions, setTransactions, payments, setPayments,
+    checkDeposits,
     notifications, setNotifications, selectedAccount, setSelectedAccount, paymentAccount, setPaymentAccount, showCreateAccount, setShowCreateAccount,
     newAccountType, setNewAccountType, pendingCloseId, setPendingCloseId,
     showNotifications, setShowNotifications, managerData, managerSearch, setManagerSearch, managerReportFilter,
     setManagerReportFilter, showManagerReport, setShowManagerReport, transferFrom, setTransferFrom, transferTo, setTransferTo,
-    transferAmount, setTransferAmount, transferNote, setTransferNote, payee, setPayee, paymentAmount, setPaymentAmount,
+    transferAmount, setTransferAmount, transferNote, setTransferNote, sendFrom, setSendFrom, sendRecipient, setSendRecipient,
+    sendAmount, setSendAmount, sendNote, setSendNote, submitSendMoney, payee, setPayee, paymentAmount, setPaymentAmount,
     paymentDate, setPaymentDate, frequency, setFrequency, atmSearch, setAtmSearch, atms, transactionSearch, setTransactionSearch,
     transactionType, setTransactionType, transactionStart, setTransactionStart, transactionEnd, setTransactionEnd, profileDraft,
     setProfileDraft, unread, isManager, total, visibleTransactions, accountOptions,

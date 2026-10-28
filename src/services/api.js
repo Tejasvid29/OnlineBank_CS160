@@ -76,6 +76,8 @@ export async function api(path, options = {}) {
     try {
       const body = await response.json();
       message = body.detail || body.message || message;
+      // FastAPI validation errors (422) come back as a list of { msg, loc }.
+      if (Array.isArray(message)) message = message[0]?.msg?.replace(/^Value error, /, '') || 'Check your entries and try again.';
     } catch { /* Keep a safe generic message. */ }
     throw new Error(typeof message === 'string' ? message : 'The request could not be completed.');
   }
@@ -109,6 +111,7 @@ export const bankingApi = {
   closeAccount: (id) => api(`/accounts/${encodeURIComponent(id)}/close`, { method: 'POST' }),
   transactions: (accountId) => api(`/accounts/${encodeURIComponent(accountId)}/transactions`),
   transfer: (payload) => api('/transfers', { method: 'POST', body: JSON.stringify(payload) }),
+  sendMoney: (payload) => api('/transfers/send', { method: 'POST', body: JSON.stringify(payload) }),
   payments: () => api('/bill-payments'),
   createPayment: (payload) => api('/bill-payments', { method: 'POST', body: JSON.stringify(payload) }),
   cancelPayment: (id) => api(`/bill-payments/${encodeURIComponent(id)}`, { method: 'DELETE' }),
@@ -116,6 +119,7 @@ export const bankingApi = {
   markNotificationRead: (id) => api(`/notifications/${encodeURIComponent(id)}/read`, { method: 'PATCH' }),
   atms: (location) => api(`/atm/search?location=${encodeURIComponent(location)}`),
   atmsNear: (latitude, longitude) => api(`/atm/search?lat=${encodeURIComponent(latitude)}&lng=${encodeURIComponent(longitude)}`),
+  checkDeposits: () => api('/deposits'),
   depositCheck: (payload) => upload('/deposits', depositForm(payload)),
   managerCustomers: () => api('/manager/customers'),
   managerAccounts: () => api('/manager/accounts'),
