@@ -228,7 +228,7 @@ export function AppProvider({ children }) {
     clearSession(); setSignedIn(false); setAuthView('login'); setNotice(message);
     setEmail(''); setPassword(''); setMfaCode(''); setRegisterDraft(emptyRegisterDraft);
     setProfile(apiConfigured ? {} : demoProfile); setAccounts(apiConfigured ? [] : demoAccounts); setTransactions(apiConfigured ? [] : demoTransactions);
-    setPayments(apiConfigured ? [] : demoPayments); setNotifications(apiConfigured ? [] : demoNotifications); setShowNotifications(false);
+    setPayments(apiConfigured ? [] : demoPayments); setNotifications(apiConfigured ? [] : demoNotifications); setCheckDeposits([]); setShowNotifications(false);
     setManagerData(initialManagerData); setManagerSearch(''); setManagerReportFilter('All'); setShowManagerReport(false); setReportResult(null);
     setSelectedAccount('checking'); setPaymentAccount('checking'); setShowCreateAccount(false); setNewAccountType('checking'); setPendingCloseId(null);
     setTransferFrom('checking'); setTransferTo('savings'); setTransferAmount(''); setTransferNote('');
