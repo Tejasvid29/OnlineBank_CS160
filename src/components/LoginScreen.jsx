@@ -41,6 +41,7 @@ export function LoginScreen() {
           </>}
           {authView === 'mfa' ? <Field label="Verification code" value={mfaCode} onChangeText={setMfaCode} keyboardType="number-pad" placeholder="Enter code" /> : <Field label="Email address" value={email} onChangeText={setEmail} keyboardType="email-address" placeholder="you@example.com" />}
           {authView === 'register' && <Field label="Phone number (optional)" value={registerDraft.phone} onChangeText={setDraft('phone')} keyboardType="phone-pad" placeholder="555-123-4567" />}
+          {authView === 'register' && <Field label="ZIP code (optional)" value={registerDraft.zip_code} onChangeText={setDraft('zip_code')} keyboardType="number-pad" placeholder="94105" />}
           {(authView === 'login' || authView === 'register') && <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry placeholder={authView === 'register' ? 'At least 8 characters' : 'Enter password'} />}
           {authView === 'register' && <Field label="Confirm password" value={registerDraft.confirm} onChangeText={setDraft('confirm')} secureTextEntry placeholder="Re-enter password" />}
           <Action onPress={authView === 'mfa' ? verifyMfa : authView === 'forgot' ? resetPassword : authView === 'register' ? register : signIn} disabled={busy}>{busy ? 'Please wait…' : authView === 'mfa' ? 'Verify code' : authView === 'forgot' ? 'Send reset link' : authView === 'register' ? 'Create account' : 'Sign in'}</Action>

@@ -10,7 +10,7 @@ from db import get_supabase
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-PROFILE_COLUMNS = "id, first_name, last_name, email, phone_number, role, status, created_at"
+PROFILE_COLUMNS = "id, first_name, last_name, email, phone_number, zip_code, role, status, created_at"
 INVALID_LOGIN = "Invalid email or password."
 
 
@@ -19,6 +19,7 @@ class RegisterRequest(BaseModel):
     last_name: str = Field(min_length=1, max_length=60)
     email: EmailStr
     phone: str | None = Field(default=None, pattern=r"^\+?[0-9 ()\-]{7,20}$")
+    zip_code: str | None = Field(default=None, pattern=r"^[0-9]{5}$")
     password: str = Field(min_length=8, max_length=72)
 
 
@@ -107,6 +108,7 @@ def register(body: RegisterRequest, db: Client = Depends(get_supabase)):
             "last_name": body.last_name.strip(),
             "email": body.email.lower(),
             "phone_number": body.phone,
+            "zip_code": body.zip_code or None,
             "role": "customer",
             "status": "active",
         }).execute()

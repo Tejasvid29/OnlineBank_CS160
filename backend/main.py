@@ -8,6 +8,7 @@ from auth import require_role, router as auth_router
 from bill_payments import router as bill_payments_router
 from config import settings
 from db import get_supabase
+from reports import router as reports_router
 from transactions import router as transactions_router
 
 app = FastAPI(title="OnlineBank API")
@@ -16,6 +17,7 @@ app.include_router(accounts_router)
 app.include_router(transactions_router)
 app.include_router(bill_payments_router)
 app.include_router(atms_router)
+app.include_router(reports_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -32,7 +34,7 @@ def health():
 
 @app.get("/manager/customers", dependencies=[Depends(require_role("admin"))])
 def manager_customers(db: Client = Depends(get_supabase)):
-    rows = db.table("users").select("id, first_name, last_name, email, role, status, created_at").execute().data
+    rows = db.table("users").select("id, first_name, last_name, email, zip_code, role, status, created_at").execute().data
     return {"customers": rows}
 
 

@@ -122,5 +122,5 @@ export const bankingApi = {
   depositCheck: (payload) => upload('/deposits', depositForm(payload)),
   managerCustomers: () => api('/manager/customers'),
   managerAccounts: () => api('/manager/accounts'),
-  managerReports: () => api('/manager/reports'),
+  managerReportSummary: (params) => api(`/manager/reports/summary?${new URLSearchParams(params)}`),
 };
