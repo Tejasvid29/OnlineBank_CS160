@@ -57,6 +57,7 @@ create table public.users (
   last_name text not null,
   email text not null unique,
   phone_number text,
+  zip_code text check (zip_code ~ '^[0-9]{5}$'),
   role public.account_role not null default 'customer',
   status public.account_status not null default 'active',
   created_at timestamptz not null default now()

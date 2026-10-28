@@ -2,13 +2,13 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from '
 import { AppState as NativeAppState, Platform, useWindowDimensions } from 'react-native';
 import { useRouter } from 'expo-router';
 import { apiConfigured, bankingApi, clearSession, hasSession, onSessionExpired, refreshSession, sessionExpiresSoon, setSession, storedRefreshToken } from '../services/api';
-import { demoAccounts, demoAtms, demoManagerData, demoNotifications, demoPayments, demoProfile, demoTransactions } from '../data/demo';
+import { buildReport, demoAccounts, demoAtms, demoManagerData, demoNotifications, demoPayments, demoProfile, demoTransactions } from '../data/demo';
 import { isActivated, money, titleCase } from '../theme';
 
 const isWeb = Platform.OS === 'web';
 // Local date as YYYY-MM-DD, computed when needed so an app left open past midnight stays correct.
 const todayString = () => { const now = new Date(); return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
-const emptyRegisterDraft = { first_name: '', last_name: '', phone: '', confirm: '' };
+const emptyRegisterDraft = { first_name: '', last_name: '', phone: '', zip_code: '', confirm: '' };
 const initialProfileDraft = apiConfigured ? { first_name: '', last_name: '', phone: '' } : { first_name: demoProfile.first_name, last_name: demoProfile.last_name, phone: demoProfile.phone };
 const initialManagerData = apiConfigured ? { customers: [], accounts: [], reports: [] } : demoManagerData;
 const SESSION_EXPIRED = 'Your session has expired. Please sign in again.';
@@ -67,6 +67,7 @@ export function AppProvider({ children }) {
   const [managerSearch, setManagerSearch] = useState('');
   const [managerReportFilter, setManagerReportFilter] = useState('All');
   const [showManagerReport, setShowManagerReport] = useState(false);
+  const [reportResult, setReportResult] = useState(null);
   const [transferFrom, setTransferFrom] = useState('checking');
   const [transferTo, setTransferTo] = useState('savings');
   const [transferAmount, setTransferAmount] = useState('');
@@ -88,7 +89,7 @@ export function AppProvider({ children }) {
   const [profileDraft, setProfileDraft] = useState(initialProfileDraft);
 
   const unread = notifications.filter((item) => !item.read).length;
-  const isManager = profile.role === 'manager' || profile.role === 'employee' || profile.role === 'admin';
+  const isManager = profile.role === 'admin';
   const total = accounts.reduce((sum, account) => sum + Number(account.balance || 0), 0);
   const visibleTransactions = useMemo(() => transactions.filter((item) => {
     const matchAccount = selectedAccount === 'all' || item.account_id === selectedAccount;
@@ -156,16 +157,17 @@ export function AppProvider({ children }) {
   }
 
   async function register() {
-    const { first_name, last_name, phone, confirm } = registerDraft;
+    const { first_name, last_name, phone, zip_code, confirm } = registerDraft;
     if (!first_name.trim() || !last_name.trim()) { setNotice('Enter your first and last name.'); return; }
     if (!validEmail(email.trim())) { setNotice('Enter a valid email address.'); return; }
     if (phone.trim() && !/^\+?[0-9 ()-]{7,20}$/.test(phone.trim())) { setNotice('Enter a valid phone number.'); return; }
+    if (zip_code.trim() && !/^[0-9]{5}$/.test(zip_code.trim())) { setNotice('Enter a valid 5-digit ZIP code.'); return; }
     if (password.length < 8) { setNotice('Your password must be at least 8 characters.'); return; }
     if (password !== confirm) { setNotice('The passwords do not match.'); return; }
     if (!apiConfigured) { setSignedIn(true); return; }
     setBusy(true); setNotice('');
     try {
-      const result = await bankingApi.register({ first_name: first_name.trim(), last_name: last_name.trim(), email: email.trim(), phone: phone.trim() || null, password });
+      const result = await bankingApi.register({ first_name: first_name.trim(), last_name: last_name.trim(), email: email.trim(), phone: phone.trim() || null, zip_code: zip_code.trim() || null, password });
       await startSession(result);
     } catch (error) { clearSession(); fail(error); }
     finally { setBusy(false); }
@@ -227,7 +229,7 @@ export function AppProvider({ children }) {
     setEmail(''); setPassword(''); setMfaCode(''); setRegisterDraft(emptyRegisterDraft);
     setProfile(apiConfigured ? {} : demoProfile); setAccounts(apiConfigured ? [] : demoAccounts); setTransactions(apiConfigured ? [] : demoTransactions);
     setPayments(apiConfigured ? [] : demoPayments); setNotifications(apiConfigured ? [] : demoNotifications); setShowNotifications(false);
-    setManagerData(initialManagerData); setManagerSearch(''); setManagerReportFilter('All'); setShowManagerReport(false);
+    setManagerData(initialManagerData); setManagerSearch(''); setManagerReportFilter('All'); setShowManagerReport(false); setReportResult(null);
     setSelectedAccount('checking'); setPaymentAccount('checking'); setShowCreateAccount(false); setNewAccountType('checking'); setPendingCloseId(null);
     setTransferFrom('checking'); setTransferTo('savings'); setTransferAmount(''); setTransferNote('');
     setSendFrom(''); setSendRecipient(''); setSendAmount(''); setSendNote('');
@@ -423,10 +425,19 @@ export function AppProvider({ children }) {
     navigate('/manager');
     if (apiConfigured) {
       try {
-        const [customers, managerAccounts, reports] = await Promise.all([bankingApi.managerCustomers(), bankingApi.managerAccounts(), bankingApi.managerReports()]);
-        setManagerData({ customers: unwrap(customers, 'customers'), accounts: unwrap(managerAccounts, 'accounts'), reports: unwrap(reports, 'reports') });
+        const [customers, managerAccounts] = await Promise.all([bankingApi.managerCustomers(), bankingApi.managerAccounts()]);
+        setManagerData({ customers: unwrap(customers, 'customers'), accounts: unwrap(managerAccounts, 'accounts'), reports: [] });
       } catch (error) { fail(error); }
     }
+  }
+
+  // Runs a summary report. filters: { group_by, zip_code, account_type, account_status, min_balance, max_balance, created_from, created_to }.
+  async function runReport(filters) {
+    const params = Object.fromEntries(Object.entries(filters).filter(([, v]) => v !== '' && v !== 'all'));
+    setNotice('');
+    try {
+      setReportResult(apiConfigured ? await bankingApi.managerReportSummary(params) : buildReport(managerData.accounts, params));
+    } catch (error) { fail(error); }
   }
 
   const accountOptions = accounts.filter(isActivated).map((item) => ({ value: item.id, label: `${titleCase(item.account_type)} ${item.account_number}` }));
@@ -446,6 +457,7 @@ export function AppProvider({ children }) {
     setProfileDraft, unread, isManager, total, visibleTransactions, accountOptions,
     navigate, signIn, verifyMfa, resetPassword, signOut, submitTransfer, submitPayment, cancelPayment, createAccount,
     closeAccount, findAtms, findAtmsNear, depositError, submitDeposit, saveProfile, markRead, openManager,
+    reportResult, runReport,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

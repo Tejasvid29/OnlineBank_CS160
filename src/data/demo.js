@@ -40,8 +40,36 @@ export const demoManagerData = {
     { id: 'demo-customer-102', first_name: 'Alex', last_name: 'Morgan' },
   ],
   accounts: [
-    { id: 'demo-account-101', account_type: 'checking', account_number: '•••• 4821', balance: 8426.72, status: 'activated' },
-    { id: 'demo-account-102', account_type: 'savings', account_number: '•••• 1904', balance: 21450, status: 'activated' },
+    { id: 'demo-account-101', account_type: 'checking', account_number: '•••• 4821', balance: 8426.72, status: 'activated', users: { id: 'demo-customer-101', first_name: 'Jordan', last_name: 'Taylor', zip_code: '94105' } },
+    { id: 'demo-account-102', account_type: 'savings', account_number: '•••• 1904', balance: 21450, status: 'activated', users: { id: 'demo-customer-101', first_name: 'Jordan', last_name: 'Taylor', zip_code: '94105' } },
   ],
   reports: [],
 };
+
+// Demo-mode twin of GET /manager/reports/summary (backend/reports.py): filter accounts, group, and aggregate.
+export function buildReport(accounts, f) {
+  const owner = (a) => a.users || {};
+  const rows = accounts.filter((a) => (!f.zip_code || owner(a).zip_code === f.zip_code)
+    && (!f.account_type || a.account_type === f.account_type)
+    && (!f.account_status || a.status === f.account_status)
+    && (f.min_balance === undefined || a.balance >= Number(f.min_balance))
+    && (f.max_balance === undefined || a.balance <= Number(f.max_balance))
+    && (!f.created_from || (a.created_at || '') >= f.created_from)
+    && (!f.created_to || (a.created_at || '') <= f.created_to));
+  const label = (a) => ({
+    zip_code: owner(a).zip_code || 'Unknown', account_type: a.account_type, account_status: a.status,
+    customer: `${owner(a).first_name || ''} ${owner(a).last_name || ''}`.trim() || 'Unknown',
+  }[f.group_by] || 'All accounts');
+  const summarize = (list) => {
+    const balances = list.map((a) => Number(a.balance));
+    const sum = balances.reduce((s, b) => s + b, 0);
+    return {
+      customer_count: new Set(list.map((a) => owner(a).id)).size, account_count: list.length, total_balance: sum,
+      average_balance: list.length ? sum / list.length : 0, min_balance: balances.length ? Math.min(...balances) : 0, max_balance: balances.length ? Math.max(...balances) : 0,
+    };
+  };
+  const grouped = {};
+  rows.forEach((a) => { (grouped[label(a)] ||= []).push(a); });
+  const groups = Object.entries(grouped).map(([group, list]) => ({ group, ...summarize(list) })).sort((a, b) => b.total_balance - a.total_balance);
+  return { group_by: f.group_by || 'none', totals: summarize(rows), groups };
+}
