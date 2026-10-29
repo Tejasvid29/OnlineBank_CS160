@@ -1,3 +1,4 @@
+import { checkPhotoPart } from './checkPhotoUpload';
 import { readRefreshToken, writeRefreshToken } from './tokenStorage';
 
 const baseUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '') || '';
@@ -86,15 +87,15 @@ export async function api(path, options = {}) {
 }
 
 // Multipart upload through the same auth and 401-refresh handling as api().
-// React Native files are { uri, name, type } objects appended to the FormData.
+// File parts must be File/Blob objects (see checkPhotoUpload), not React Native { uri, name, type } objects.
 export const upload = (path, formData, options = {}) => api(path, { method: 'POST', ...options, body: formData });
 
 function depositForm({ account_id, amount, front, back }) {
   const form = new FormData();
   form.append('account_id', account_id);
   form.append('amount', String(amount));
-  form.append('front_image', { uri: front.uri, name: 'front.jpg', type: front.mimeType || 'image/jpeg' });
-  form.append('back_image', { uri: back.uri, name: 'back.jpg', type: back.mimeType || 'image/jpeg' });
+  form.append('front_image', checkPhotoPart(front, 'front'));
+  form.append('back_image', checkPhotoPart(back, 'back'));
   return form;
 }
 
