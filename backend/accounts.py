@@ -40,6 +40,23 @@ def _get_own_account(db: Client, user_id: str, account_id: str) -> dict:
     return rows[0]
 
 
+def _has_pending_activity(db: Client, account_id: str) -> bool:
+    # Callers check ownership first (_get_own_account), so filtering by account is enough here.
+    for table in ("check_deposits", "transactions"):
+        rows = (
+            db.table(table)
+            .select("id")
+            .eq("account_id", account_id)
+            .eq("status", "pending")
+            .limit(1)
+            .execute()
+            .data
+        )
+        if rows:
+            return True
+    return False
+
+
 @router.get("")
 def list_accounts(user: dict = Depends(get_current_user), db: Client = Depends(get_supabase)):
     rows = (
@@ -92,6 +109,11 @@ def close_account(account_id: str, user: dict = Depends(get_current_user), db: C
         raise HTTPException(status.HTTP_409_CONFLICT, "This account is already closed.")
     if account["balance"] != 0:
         raise HTTPException(status.HTTP_409_CONFLICT, "Withdraw or transfer the remaining balance before closing.")
+    if _has_pending_activity(db, account_id):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This account has pending deposits or transactions. Wait for them to finish before closing it.",
+        )
 
     rows = (
         db.table("accounts")
