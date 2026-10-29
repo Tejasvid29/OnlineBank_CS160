@@ -95,6 +95,15 @@ export function DateField({ label, value, onChange, minimumDate, maximumDate, pl
   </View>;
 }
 
+// Segmented switch, e.g. Transfer | Bill pay. options is a list of [value, label]; style adjusts the container.
+export function SegmentedTabs({ options, value, onChange, style }) {
+  return <View accessibilityRole="tablist" style={[styles.nativeSegment, style]}>
+    {options.map(([option, label]) => <Pressable key={option} accessibilityRole="tab" accessibilityState={{ selected: value === option }} onPress={() => onChange(option)} style={[styles.nativeSegmentItem, value === option && styles.choiceActive]}>
+      <Text style={[styles.choiceText, value === option && styles.choiceTextActive]}>{label}</Text>
+    </Pressable>)}
+  </View>;
+}
+
 // Card whose body folds away, for secondary detail. Pass open/onToggle to control it from state.
 export function Collapsible({ title, subtitle, defaultOpen = false, open: controlledOpen, onToggle, children }) {
   const [localOpen, setLocalOpen] = useState(defaultOpen);

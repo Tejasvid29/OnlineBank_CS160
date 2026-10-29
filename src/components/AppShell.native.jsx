@@ -7,7 +7,7 @@ import { apiConfigured } from '../services/api';
 import { colors, dateLabel } from '../theme';
 import { styles } from '../styles/appStyles';
 import { Icon } from '../ui/primitives';
-import { Toast } from '../ui/mobilePrimitives';
+import { SegmentedTabs, Toast } from '../ui/mobilePrimitives';
 import { MOBILE_MORE, MOBILE_PAY_NAV, MOBILE_TABS } from '../navigation/nav';
 import { useApp } from '../state/AppState';
 
@@ -59,11 +59,7 @@ function ScreenFrame({ routeName, keyboardOffset, children }) {
   const pathname = usePathname();
   const { navigate } = useApp();
   return <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={keyboardOffset}>
-    {(routeName === 'transfer' || routeName === 'payments') && <View style={styles.nativeSegment}>
-      {MOBILE_PAY_NAV.map(([path, label]) => <Pressable key={path} accessibilityRole="tab" accessibilityState={{ selected: pathname === path }} onPress={() => navigate(path)} style={[styles.nativeSegmentItem, pathname === path && styles.choiceActive]}>
-        <Text style={[styles.choiceText, pathname === path && styles.choiceTextActive]}>{label}</Text>
-      </Pressable>)}
-    </View>}
+    {(routeName === 'transfer' || routeName === 'payments') && <SegmentedTabs options={MOBILE_PAY_NAV} value={pathname} onChange={navigate} />}
     <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.nativeContent} keyboardShouldPersistTaps="handled">{children}</ScrollView>
   </KeyboardAvoidingView>;
 }
