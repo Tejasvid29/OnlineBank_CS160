@@ -160,6 +160,7 @@ export function AppProvider({ children }) {
     const { first_name, last_name, phone, zip_code, confirm } = registerDraft;
     if (!first_name.trim() || !last_name.trim()) { setNotice('Enter your first and last name.'); return; }
     if (!validEmail(email.trim())) { setNotice('Enter a valid email address.'); return; }
+    if (!/@gmail\.com$/i.test(email.trim())) { setNotice("Due to the limitation of RESEND SMTP server, we're only allowing @gmail email addresses since RESEND can only send emails to the same domain as the email I registered with to get the API Key, thanks."); return; }
     if (phone.trim() && !/^\+?[0-9 ()-]{7,20}$/.test(phone.trim())) { setNotice('Enter a valid phone number.'); return; }
     if (zip_code.trim() && !/^[0-9]{5}$/.test(zip_code.trim())) { setNotice('Enter a valid 5-digit ZIP code.'); return; }
     if (password.length < 8) { setNotice('Your password must be at least 8 characters.'); return; }

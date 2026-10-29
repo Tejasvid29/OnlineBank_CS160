@@ -36,7 +36,7 @@ def test_register_success(monkeypatch):
         "id":  "test_user_id",
         "first_name": "Test",
         "last_name": "User",
-        "email": "test@example.com",
+        "email": "test@gmail.com",
         "phone_number": "1234567890",
         "role": "customer",
         "status": "active",
@@ -69,7 +69,7 @@ def test_register_success(monkeypatch):
                 json={
                     "first_name": "Test",
                     "last_name": "Customer",
-                    "email": "test@example.com",
+                    "email": "test@gmail.com",
                     "password": "Password123!"
                 }
             ) 
@@ -80,7 +80,7 @@ def test_register_success(monkeypatch):
 
     result = response.json()
 
-    assert result["profile"]["email"] == "test@example.com"
+    assert result["profile"]["email"] == "test@gmail.com"
     assert result["profile"]["role"] == "customer"
     assert result["access_token"] == "test_access_token"
 
@@ -90,7 +90,7 @@ def test_register_success(monkeypatch):
 
     assert inserted["role"] == "customer"
     assert inserted["status"] == "active"
-    assert inserted["email"] == "test@example.com"
+    assert inserted["email"] == "test@gmail.com"
 
 
 
@@ -115,7 +115,7 @@ def test_register_duplicate_email(monkeypatch):
                 json={
                     "first_name": "Test",
                     "last_name": "Customer",
-                    "email": "existing@example.com",
+                    "email": "existing@gmail.com",
                     "password": "Password123!"
                 }
             )
@@ -166,7 +166,7 @@ def test_register_short_password():
                 json={
                     "first_name": "Test",
                     "last_name": "Customer",
-                    "email": "test@example.com",
+                    "email": "test@gmail.com",
                     "password": "12345"
                 }
             )
@@ -199,7 +199,7 @@ def test_register_missing_fields(missing_field):
     payload = {
         "first_name": "Test",
         "last_name": "Customer",
-        "email": "test@example.com",
+        "email": "test@gmail.com",
         "password": "Password123!"
     }
     del payload[missing_field]
@@ -239,7 +239,7 @@ def test_register_invalid_phone(invalid_phone):
     payload = {
         "first_name": "Test",
         "last_name": "Customer",
-        "email": "test@example.com",
+        "email": "test@gmail.com",
         "password": "Password123!",
         "phone": invalid_phone
     }
@@ -614,3 +614,14 @@ def test_reset_password_rejects_bad_token(client, supabase):
 
     assert response.status_code == 400
     supabase.mock.auth.admin.update_user_by_id.assert_not_called()
+
+
+@pytest.mark.parametrize("email", ["test@example.com", "student@sjsu.edu", "test@gmail.com.evil.org", "test@notgmail.com"])
+def test_register_rejects_non_gmail(client, supabase, email):
+    response = client.post("/auth/register", json={
+        "first_name": "Test", "last_name": "User", "email": email, "password": "Password123!",
+    })
+
+    assert response.status_code == 422
+    assert "only allowing @gmail email addresses" in response.json()["detail"][0]["msg"]
+    supabase.mock.auth.admin.create_user.assert_not_called()

@@ -16,7 +16,7 @@ test('registers a new user', async ({ page }) => {
     name: 'New here? Create an account'
   }).click();
 
-  const email = `test-${Date.now()}@example.com`;
+  const email = `test-${Date.now()}@gmail.com`;
   await page.getByLabel('First name').fill('Test');
   await page.getByLabel('Last name').fill('User');
   await page.getByLabel('Email address').fill(email);

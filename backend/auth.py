@@ -2,7 +2,7 @@ import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from supabase import Client, ClientOptions, create_client
 from supabase_auth.errors import AuthApiError
 
@@ -13,6 +13,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 PROFILE_COLUMNS = "id, first_name, last_name, email, phone_number, zip_code, role, status, created_at"
+GMAIL_ONLY_MESSAGE = (
+    "Due to the limitation of RESEND SMTP server, we're only allowing @gmail email addresses since RESEND can only "
+    "send emails to the same domain as the email I registered with to get the API Key, thanks."
+)
 INVALID_LOGIN = "Invalid email or password."
 
 
@@ -23,6 +27,14 @@ class RegisterRequest(BaseModel):
     phone: str | None = Field(default=None, pattern=r"^\+?[0-9 ()\-]{7,20}$")
     zip_code: str | None = Field(default=None, pattern=r"^[0-9]{5}$")
     password: str = Field(min_length=8, max_length=72)
+
+    @field_validator("email")
+    @classmethod
+    def gmail_only(cls, value: str) -> str:
+        # Reset emails go out through Gmail SMTP, so only Gmail addresses can be registered.
+        if not value.lower().endswith("@gmail.com"):
+            raise ValueError(GMAIL_ONLY_MESSAGE)
+        return value
 
 
 class LoginRequest(BaseModel):
