@@ -24,7 +24,7 @@ def auth_client(monkeypatch) -> AuthClientStub:
     """Stand-in for the throwaway client used to sign users in."""
     stub = AuthClientStub()
 
-    def create_client(url: str, key: str):
+    def create_client(url: str, key: str, **kwargs):
         stub.created_with.append((url, key))
         return stub.mock
 

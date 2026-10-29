@@ -582,3 +582,35 @@ def test_access_after_logout():
 
     fake_db.auth.admin.sign_out.assert_called_once_with(token)
 
+
+
+def test_forgot_password_sends_web_redirect(client, auth_client):
+    response = client.post("/auth/forgot-password", json={"email": "test@example.com"})
+
+    assert response.status_code == 204
+    email, options = auth_client.mock.auth.reset_password_for_email.call_args.args
+    assert email == "test@example.com"
+    assert options == {"redirect_to": f"{auth.settings.app_url.rstrip('/')}/reset-password"}
+
+
+def test_reset_password_updates_user(client, supabase):
+    supabase.mock.auth.get_user.return_value = MagicMock(user=MagicMock(id="user-1"))
+
+    response = client.post(
+        "/auth/reset-password", json={"access_token": "recovery-token", "password": "NewPassword1!"}
+    )
+
+    assert response.status_code == 204
+    supabase.mock.auth.get_user.assert_called_once_with("recovery-token")
+    supabase.mock.auth.admin.update_user_by_id.assert_called_once_with("user-1", {"password": "NewPassword1!"})
+
+
+def test_reset_password_rejects_bad_token(client, supabase):
+    supabase.mock.auth.get_user.side_effect = auth.AuthApiError("bad jwt", 401, "bad_jwt")
+
+    response = client.post(
+        "/auth/reset-password", json={"access_token": "expired", "password": "NewPassword1!"}
+    )
+
+    assert response.status_code == 400
+    supabase.mock.auth.admin.update_user_by_id.assert_not_called()

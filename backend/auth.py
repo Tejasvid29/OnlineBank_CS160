@@ -1,13 +1,15 @@
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
-from supabase import Client, create_client
+from supabase import Client, ClientOptions, create_client
 from supabase_auth.errors import AuthApiError
 
 from config import settings
 from db import get_supabase
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 PROFILE_COLUMNS = "id, first_name, last_name, email, phone_number, zip_code, role, status, created_at"
@@ -34,6 +36,11 @@ class RefreshRequest(BaseModel):
 
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    access_token: str
+    password: str = Field(min_length=8, max_length=72)
 
 
 def _profile_out(row: dict) -> dict:
@@ -159,8 +166,32 @@ def logout(token: str = Depends(_bearer_token), db: Client = Depends(get_supabas
 
 @router.post("/forgot-password", status_code=status.HTTP_204_NO_CONTENT)
 def forgot_password(body: ForgotPasswordRequest):
-    auth_client = create_client(settings.supabase_url, settings.supabase_publishable_key)
+    # Implicit flow puts the recovery token in the link itself; PKCE would need a code verifier that
+    # this throwaway client does not outlive.
+    auth_client = create_client(
+        settings.supabase_url,
+        settings.supabase_publishable_key,
+        options=ClientOptions(flow_type="implicit"),
+    )
     try:
-        auth_client.auth.reset_password_for_email(body.email)
+        auth_client.auth.reset_password_for_email(
+            body.email, {"redirect_to": f"{settings.app_url.rstrip('/')}/reset-password"}
+        )
+    except AuthApiError as error:
+        # Same response whether or not the address is registered, but keep the cause (e.g. a rate limit) visible.
+        logger.warning("Password reset request failed: %s (%s)", error.message, error.code)
+
+
+@router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT)
+def reset_password(body: ResetPasswordRequest, db: Client = Depends(get_supabase)):
+    invalid = HTTPException(status.HTTP_400_BAD_REQUEST, "This reset link is invalid or has expired.")
+    try:
+        result = db.auth.get_user(body.access_token)
     except AuthApiError:
-        pass  # Same response whether or not the address is registered.
+        raise invalid
+    if result is None or result.user is None:
+        raise invalid
+    try:
+        db.auth.admin.update_user_by_id(result.user.id, {"password": body.password})
+    except AuthApiError as error:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, error.message)

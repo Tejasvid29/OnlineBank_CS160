@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     # Free key from geoapify.com. Server-side only; ATM search returns 503 until it is set.
     geoapify_api_key: str = ""
     check_deposit_bucket: str = "check-deposits"
+    # Where the password-reset email link sends the user. Must also be in Supabase's Redirect URLs.
+    app_url: str = "http://localhost:8081"
     cors_origins: str = "http://localhost:8081,http://localhost:19006"
 
 

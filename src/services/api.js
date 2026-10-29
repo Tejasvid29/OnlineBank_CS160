@@ -28,7 +28,7 @@ export const sessionExpiresSoon = (withinMs = 5 * 60 * 1000) => !expiresAt || ex
 export const onSessionExpired = (handler) => { sessionExpiredHandler = handler; };
 
 // Routes where a 401 means bad credentials, not an expired session.
-const PUBLIC_ROUTES = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/forgot-password', '/auth/mfa/verify'];
+const PUBLIC_ROUTES = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/forgot-password', '/auth/reset-password', '/auth/mfa/verify'];
 
 // FormData bodies get no Content-Type so fetch can add the multipart boundary itself.
 const isFormData = (body) => typeof FormData !== 'undefined' && body instanceof FormData;
@@ -106,6 +106,7 @@ export const bankingApi = {
   me: () => api('/auth/me'),
   logout: () => api('/auth/logout', { method: 'POST' }),
   forgotPassword: (email) => api('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) }),
+  resetPassword: (access_token, password) => api('/auth/reset-password', { method: 'POST', body: JSON.stringify({ access_token, password }) }),
   verifyMfa: (code) => api('/auth/mfa/verify', { method: 'POST', body: JSON.stringify({ code }) }),
   accounts: () => api('/accounts'),
   createAccount: (payload) => api('/accounts', { method: 'POST', body: JSON.stringify(payload) }),
