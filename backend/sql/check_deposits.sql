@@ -30,11 +30,14 @@ create table if not exists public.check_deposits (
 create index if not exists check_deposits_customer_created_idx
   on public.check_deposits (customer_id, created_at desc);
 
+-- No customer policies: only the backend's secret key (service_role, which bypasses RLS) reads this table,
+-- and deposits.py returns only safe columns. With RLS on and no policy, anon and authenticated get no rows.
+-- Databases created before this change: run check_deposits_policy_fix.sql.
 alter table public.check_deposits enable row level security;
 
-create policy "Customers can view own check deposits"
-  on public.check_deposits for select to authenticated
-  using ((select auth.uid()) = customer_id);
+drop policy if exists "Customers can view own check deposits" on public.check_deposits;
+
+revoke all on table public.check_deposits from anon, authenticated;
 
 -- The backend calls this with its secret-key client after validating the JWT and storing both images.
 -- The check row and pending ledger entry are inserted in one database transaction. Retried identical
