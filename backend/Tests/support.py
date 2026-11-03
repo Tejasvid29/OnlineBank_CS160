@@ -114,9 +114,9 @@ class SupabaseStub:
     @property
     def inserted_user(self) -> dict:
         """The row the register route wrote, if it wrote one."""
-        call = self.mock.table.return_value.insert.call_args
-        assert call is not None, "no profile row was inserted"
-        return call.args[0]
+        calls = self.mock.table.return_value.insert.call_args_list
+        assert calls, "no profile row was inserted"
+        return calls[0].args[0]  # Later inserts are audit-log entries.
 
 
 class AuthClientStub:

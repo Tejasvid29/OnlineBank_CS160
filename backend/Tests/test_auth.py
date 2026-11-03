@@ -86,7 +86,7 @@ def test_register_success(monkeypatch):
 
     fake_db.auth.admin.create_user.assert_called_once()
     
-    inserted = fake_db.table.return_value.insert.call_args.args[0]
+    inserted = fake_db.table.return_value.insert.call_args_list[0].args[0]
 
     assert inserted["role"] == "customer"
     assert inserted["status"] == "active"

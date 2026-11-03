@@ -6,6 +6,8 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from supabase import Client, ClientOptions, create_client
 from supabase_auth.errors import AuthApiError
 
+import audit
+from audit import record_event
 from config import settings
 from db import get_supabase
 
@@ -35,6 +37,12 @@ class RegisterRequest(BaseModel):
         if not value.lower().endswith("@gmail.com"):
             raise ValueError(GMAIL_ONLY_MESSAGE)
         return value
+
+
+class UpdateProfileRequest(BaseModel):
+    first_name: str | None = Field(default=None, min_length=1, max_length=60)
+    last_name: str | None = Field(default=None, min_length=1, max_length=60)
+    phone: str | None = Field(default=None, pattern=r"^\+?[0-9 ()\-]{7,20}$")
 
 
 class LoginRequest(BaseModel):
@@ -135,6 +143,7 @@ def register(body: RegisterRequest, db: Client = Depends(get_supabase)):
         db.auth.admin.delete_user(user_id)
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Could not create the account.")
 
+    record_event(db, user_id, audit.ACCOUNT_REGISTERED)
     return login(LoginRequest(email=body.email, password=body.password), db)
 
 
@@ -207,3 +216,26 @@ def reset_password(body: ResetPasswordRequest, db: Client = Depends(get_supabase
         db.auth.admin.update_user_by_id(result.user.id, {"password": body.password})
     except AuthApiError as error:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, error.message)
+    record_event(db, result.user.id, audit.PASSWORD_RESET)
+
+
+@router.patch("/me")
+def update_profile(body: UpdateProfileRequest, user: dict = Depends(get_current_user), db: Client = Depends(get_supabase)):
+    # Only the fields the client sent, and only those that actually differ, are written and logged.
+    submitted = {"first_name": body.first_name, "last_name": body.last_name, "phone_number": body.phone}
+    changes = {
+        column: value.strip() if isinstance(value, str) else value
+        for column, value in submitted.items()
+        if (column if column != "phone_number" else "phone") in body.model_fields_set
+    }
+    changes = {column: value for column, value in changes.items() if user.get(column) != value}
+    if not changes:
+        return {"profile": _profile_out(user)}
+    rows = db.table("users").update(changes).eq("id", user["id"]).execute().data
+    record_event(
+        db,
+        user["id"],
+        audit.PROFILE_UPDATED,
+        {"changes": {column: {"from": user.get(column), "to": value} for column, value in changes.items()}},
+    )
+    return {"profile": _profile_out(rows[0] if rows else {**user, **changes})}

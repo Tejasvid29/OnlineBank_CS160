@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Text, View } from 'react-native';
 import { money, titleCase } from '../src/theme';
 import { styles } from '../src/styles/appStyles';
+import CustomerAuditRow from '../src/components/AuditLog';
 import ReportBuilder from '../src/components/ReportBuilder';
 import { Card, Field, SectionHeading } from '../src/ui/primitives';
 import { SegmentedTabs } from '../src/ui/mobilePrimitives';
@@ -38,7 +39,7 @@ export default function Manager() {
       {search}
       <Card style={styles.nativeCard}>
         <Text style={styles.rowSub}>{customers.length} shown</Text>
-        {customers.length ? customers.map((item, index) => <View style={styles.simpleRow} key={item.id || index}><Text style={styles.rowTitle}>{item.first_name} {item.last_name}</Text><Text style={styles.rowSub}>{item.id}</Text></View>) : <Text style={styles.emptyText}>No matching customers.</Text>}
+        {customers.length ? customers.map((item, index) => <CustomerAuditRow customer={item} key={item.id || index} />) : <Text style={styles.emptyText}>No matching customers.</Text>}
       </Card>
     </View>
     <View style={tab !== 'accounts' && styles.nativeHidden}>

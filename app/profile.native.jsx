@@ -26,8 +26,7 @@ export default function Profile() {
       <Field label="Last name" value={profileDraft.last_name} onChangeText={setDraft('last_name')} autoCapitalize="words" />
       <Field label="Phone number" value={profileDraft.phone} onChangeText={setDraft('phone')} keyboardType="phone-pad" />
       <View style={styles.field}><Text style={styles.fieldLabel}>Email address</Text><Text style={styles.readOnly}>{profile.email}</Text></View>
-      <Action onPress={saveProfile} disabled={busy || apiConfigured} style={styles.nativeFullAction}>Save changes</Action>
-      {apiConfigured && <Text style={styles.nativeHint}>Profile editing will be enabled when the backend adds a profile update endpoint.</Text>}
+      <Action onPress={saveProfile} disabled={busy} style={styles.nativeFullAction}>Save changes</Action>
     </Card>
 
     <Collapsible title="Account security" subtitle="Passwords and unfamiliar activity">

@@ -68,6 +68,7 @@ export function AppProvider({ children }) {
   const [managerReportFilter, setManagerReportFilter] = useState('All');
   const [showManagerReport, setShowManagerReport] = useState(false);
   const [reportResult, setReportResult] = useState(null);
+  const [auditLog, setAuditLog] = useState({ customerId: null, entries: [] });
   const [transferFrom, setTransferFrom] = useState('checking');
   const [transferTo, setTransferTo] = useState('savings');
   const [transferAmount, setTransferAmount] = useState('');
@@ -407,8 +408,10 @@ export function AppProvider({ children }) {
     if (!profileDraft.first_name.trim() || !profileDraft.last_name.trim()) { setNotice('Enter your first and last name.'); return; }
     setBusy(true); setNotice('');
     try {
-      if (apiConfigured) throw new Error('Profile updates need a dedicated backend profile endpoint.');
-      setProfile((current) => ({ ...current, ...profileDraft }));
+      if (apiConfigured) {
+        const result = await bankingApi.updateProfile({ first_name: profileDraft.first_name, last_name: profileDraft.last_name, phone: profileDraft.phone || null });
+        setProfile(result.profile);
+      } else setProfile((current) => ({ ...current, ...profileDraft }));
       setNotice('Your profile was updated.', 'success');
     } catch (error) { fail(error); }
     finally { setBusy(false); }
@@ -430,6 +433,16 @@ export function AppProvider({ children }) {
         setManagerData({ customers: unwrap(customers, 'customers'), accounts: unwrap(managerAccounts, 'accounts'), reports: [] });
       } catch (error) { fail(error); }
     }
+  }
+
+  // Loads the audit trail for one customer (manager only). Demo mode has no backend, so the trail is empty.
+  async function loadAuditLog(customerId) {
+    setAuditLog({ customerId, entries: [] });
+    if (!apiConfigured || !customerId) return;
+    try {
+      const result = await bankingApi.managerAuditLog(customerId);
+      setAuditLog({ customerId, entries: unwrap(result, 'entries') });
+    } catch (error) { fail(error); }
   }
 
   // Runs a summary report. filters: { group_by, zip_code, account_type, account_status, min_balance, max_balance, created_from, created_to }.
@@ -458,7 +471,7 @@ export function AppProvider({ children }) {
     setProfileDraft, unread, isManager, total, visibleTransactions, accountOptions,
     navigate, signIn, verifyMfa, resetPassword, signOut, submitTransfer, submitPayment, cancelPayment, createAccount,
     closeAccount, findAtms, findAtmsNear, depositError, submitDeposit, saveProfile, markRead, openManager,
-    reportResult, runReport,
+    reportResult, runReport, auditLog, loadAuditLog,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

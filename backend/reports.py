@@ -58,6 +58,20 @@ def manager_accounts(db: Client = Depends(get_supabase)):
     return {"accounts": rows}
 
 
+@router.get("/customers/{customer_id}/audit-log")
+def customer_audit_log(customer_id: str, limit: int = Query(100, ge=1, le=500), db: Client = Depends(get_supabase)):
+    rows = (
+        db.table("audit_log")
+        .select("id, action, details, actor_id, created_at")
+        .eq("customer_id", customer_id)
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+        .data
+    )
+    return {"entries": rows}
+
+
 @router.get("/reports/summary")
 def report_summary(
     group_by: GroupBy = "none",

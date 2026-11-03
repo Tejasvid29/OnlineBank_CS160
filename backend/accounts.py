@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from supabase import Client
 
+import audit
+from audit import record_event
 from auth import get_current_user
 from db import get_supabase
 
@@ -93,6 +95,10 @@ def open_account(
             )
         except Exception:
             continue  # Most likely an account_number collision; try a new number.
+        record_event(
+            db, user["id"], audit.BANK_ACCOUNT_OPENED,
+            {"account_id": rows[0]["id"], "account_number": rows[0]["account_number"], "account_type": body.account_type},
+        )
         return {"account": {k: rows[0][k] for k in ACCOUNT_COLUMNS.split(", ")}}
     raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Could not open the account.")
 
@@ -126,4 +132,8 @@ def close_account(account_id: str, user: dict = Depends(get_current_user), db: C
     )
     if not rows:
         raise HTTPException(status.HTTP_409_CONFLICT, "This account is already closed.")
+    record_event(
+        db, user["id"], audit.BANK_ACCOUNT_CLOSED,
+        {"account_id": account_id, "account_number": rows[0]["account_number"], "account_type": rows[0]["account_type"]},
+    )
     return {"account": {k: rows[0][k] for k in ACCOUNT_COLUMNS.split(", ")}}
