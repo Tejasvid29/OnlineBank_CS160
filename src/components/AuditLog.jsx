@@ -25,10 +25,15 @@ export default function CustomerAuditRow({ customer }) {
   const { auditLog, loadAuditLog } = useApp();
   const open = auditLog.customerId === customer.id;
   return <View style={styles.simpleRow}>
-    <Pressable onPress={() => open ? loadAuditLog(null) : loadAuditLog(customer.id)}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ expanded: open }}
+      accessibilityLabel={`${open ? 'Hide' : 'View'} audit log for ${customer.first_name} ${customer.last_name}`}
+      onPress={() => open ? loadAuditLog(null) : loadAuditLog(customer.id)}
+    >
       <Text style={styles.rowTitle}>{customer.first_name} {customer.last_name}</Text>
       <Text style={styles.rowSub}>{customer.id}</Text>
-      <Text style={styles.rowSub}>{open ? 'Hide audit log' : 'View audit log'}</Text>
+      <Text style={[styles.linkText, styles.linkButton]}>{open ? 'Hide audit log' : 'View audit log'}</Text>
     </Pressable>
     {open ? (auditLog.entries.length
       ? auditLog.entries.map((entry) => <View key={entry.id}>

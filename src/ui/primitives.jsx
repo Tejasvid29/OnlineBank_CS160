@@ -8,9 +8,9 @@ export function Icon({ name, size = 20, color = colors.blue }) {
   return <Ionicons name={name} size={size} color={color} />;
 }
 
-export function Action({ children, onPress, variant = 'primary', icon, disabled = false, style }) {
+export function Action({ children, onPress, variant = 'primary', icon, disabled = false, style, accessibilityLabel }) {
   const primary = variant === 'primary';
-  return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.action, primary ? styles.actionPrimary : styles.actionSecondary, disabled && styles.disabled, pressed && styles.pressed, style]}>
+  return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.action, primary ? styles.actionPrimary : styles.actionSecondary, disabled && styles.disabled, pressed && styles.pressed, style]}>
     {icon && <Icon name={icon} size={17} color={primary ? colors.white : colors.blue} />}
     <Text style={[styles.actionText, { color: primary ? colors.white : colors.blue }]}>{children}</Text>
   </Pressable>;
