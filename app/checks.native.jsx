@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Alert, Image, Linking, Pressable, Text, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { apiConfigured } from '../src/services/api';
 import { colors, dateLabel, isActivated, money, titleCase } from '../src/theme';
 import { styles } from '../src/styles/appStyles';
 import { Action, Card, Field, Icon, LinkButton, SectionHeading } from '../src/ui/primitives';
@@ -13,8 +12,22 @@ const STEPS = ['details', 'front', 'back', 'review'];
 const STEP_NAMES = { details: 'Account and amount', front: 'Front of check', back: 'Back of check', review: 'Review' };
 const SIDES = {
   front: { title: 'Photograph the front', tip: 'Place the check on a dark, flat surface in good light. Fit all four corners in the frame.' },
-  back: { title: 'Photograph the back', tip: 'Sign the back and write “For mobile deposit only at CS160 Bank” before you take the photo.' },
+  back: { title: 'Photograph the back', tip: 'Sign the back and write “For mobile deposit only at CS160 Bank” before you take or choose the photo.' },
 };
+
+// Same compression for camera and library photos. "Compatible" makes iOS hand over a JPEG instead of the HEIC
+// original; Android re-encodes HEIC as JPEG whenever quality is below 1.
+const PICKER_OPTIONS = { mediaTypes: ['images'], quality: 0.85, exif: false };
+const LIBRARY_OPTIONS = { ...PICKER_OPTIONS, preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible };
+// The backend accepts only JPEG or PNG; the upload's Content-Type comes from the file extension.
+const PHOTO_FILE = /\.(jpe?g|png)$/i;
+
+// Each pick is a new cache file, so compare the library asset (or its name, size and dimensions) rather than the URI.
+function samePhoto(a, b) {
+  if (!a || !b) return false;
+  if (a.assetId && b.assetId) return a.assetId === b.assetId;
+  return Boolean(a.fileName) && a.fileName === b.fileName && a.fileSize === b.fileSize && a.width === b.width && a.height === b.height;
+}
 
 // Native check deposit: account and amount → front photo → back photo → review → submit.
 // Web keeps app/checks.jsx, which explains that deposits are mobile only.
@@ -36,14 +49,17 @@ export default function Checks() {
     setStep('details'); setAmount(''); setPhotos({ front: null, back: null }); setSubmitted(null);
   }
 
+  // Camera and library photos both end here, so they get the same checks and cache cleanup.
   async function usePhoto(side, asset) {
-    if (!asset?.uri) { setNotice(`The ${side} photo could not be read. Retake it.`); return; }
-    if (asset.fileSize > 10 * 1024 * 1024) { setNotice(`The ${side} photo is too large. Retake it under 10 MB.`); await discardCheckPhoto(asset); return; }
+    const other = photos[side === 'front' ? 'back' : 'front'];
+    const reject = async (message) => { setNotice(message); await discardCheckPhoto(asset); };
+    if (!asset?.uri) { setNotice(`The ${side} photo could not be read. Retake it or choose another photo.`); return; }
+    if (!PHOTO_FILE.test(asset.uri)) return reject(`The ${side} photo must be a JPEG or PNG image. Choose a different photo.`);
+    if (asset.fileSize > 10 * 1024 * 1024) return reject(`The ${side} photo is too large. Use a photo under 10 MB.`);
     if (asset.width && asset.height && (Math.min(asset.width, asset.height) < 400 || Math.max(asset.width, asset.height) < 800)) {
-      setNotice(`The ${side} photo is too small. Retake it with the full check visible.`);
-      await discardCheckPhoto(asset);
-      return;
+      return reject(`The ${side} photo is too small. Retake it or choose a photo with the full check visible.`);
     }
+    if (samePhoto(asset, other)) return reject('The front and back photos are the same. Use a photo of each side of the check.');
     const previous = photos[side];
     setNotice('');
     setPhotos((current) => ({ ...current, [side]: asset }));
@@ -54,20 +70,22 @@ export default function Checks() {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
       setCameraBlocked(true);
-      if (!permission.canAskAgain) Alert.alert('Camera access is off', 'Allow camera access for CS160 Bank in Settings to photograph your check.', [{ text: 'Not now', style: 'cancel' }, { text: 'Open Settings', onPress: () => Linking.openSettings() }]);
+      if (!permission.canAskAgain) Alert.alert('Camera access is off', 'Allow camera access for CS160 Bank in Settings to photograph your check, or choose a photo instead.', [{ text: 'Not now', style: 'cancel' }, { text: 'Open Settings', onPress: () => Linking.openSettings() }]);
       return;
     }
     setCameraBlocked(false);
     try {
-      const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.85, exif: false });
+      const result = await ImagePicker.launchCameraAsync(PICKER_OPTIONS);
       if (!result.canceled) await usePhoto(side, result.assets[0]);
-    } catch { setNotice('The camera is not available on this device.'); }
+    } catch { setNotice('The camera is not available on this device. Choose a photo instead.'); }
   }
 
-  // Demo only: lets the flow be tried on a simulator or emulator without a camera.
-  async function pickFromLibrary(side) {
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.85, exif: false });
-    if (!result.canceled) await usePhoto(side, result.assets[0]);
+  // The system photo picker needs no photo-library permission: the customer only shares the photo they pick.
+  async function chooseFromLibrary(side) {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync(LIBRARY_OPTIONS);
+      if (!result.canceled) await usePhoto(side, result.assets[0]);
+    } catch { setNotice('Your photos could not be opened. Try again or take a photo instead.'); }
   }
 
   function continueFromDetails() {
@@ -106,7 +124,7 @@ export default function Checks() {
       <Select label="Deposit to" value={accountId} options={options} onChange={setAccountId} />
       <Field label="Check amount" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="0.00" />
       <Action onPress={continueFromDetails} icon="arrow-forward-outline" style={styles.nativeFullAction}>Continue</Action>
-      <Text style={styles.nativeHint}>Have the check ready, signed on the back with “For mobile deposit only at CS160 Bank”.</Text>
+      <Text style={styles.nativeHint}>Have the check ready, signed on the back with “For mobile deposit only at CS160 Bank”. You can take photos of it or choose photos you’ve already taken.</Text>
     </Card>}
 
     {step === 'details' && checkDeposits.length > 0 && <Card style={styles.nativeCard}>
@@ -123,22 +141,25 @@ export default function Checks() {
         ? <Image source={{ uri: photos[step].uri }} style={styles.nativeCheckPhoto} resizeMode="contain" accessibilityLabel={`Photo of the ${step} of the check`} />
         : <Pressable accessibilityRole="button" accessibilityLabel={`Take a photo of the ${step} of the check`} onPress={() => capture(step)} style={styles.nativeCheckPlaceholder}>
           <Icon name="camera-outline" size={32} color={colors.muted} />
-          <Text style={styles.rowSub}>Tap to open the camera</Text>
+          <Text style={styles.rowSub}>Tap to take a photo, or choose one from your photos below</Text>
         </Pressable>}
       {cameraBlocked && <View style={[styles.notice, styles.noticeError]}>
         <Icon name="alert-circle-outline" size={19} color={colors.red} />
-        <Text style={styles.noticeText}>Camera access is off. Allow it in Settings to photograph your check.</Text>
+        <Text style={styles.noticeText}>Camera access is off. Allow it in Settings to photograph your check, or choose a photo instead.</Text>
       </View>}
       <Text style={[styles.bodyText, { marginBottom: 16 }]}>{side.tip}</Text>
       <View style={styles.nativeButtonStack}>
         {photos[step]
           ? <>
             <Action onPress={() => setStep(step === 'front' ? 'back' : 'review')} icon="arrow-forward-outline" style={styles.nativeFullAction}>Use this photo</Action>
-            <Action variant="secondary" onPress={() => capture(step)} icon="camera-reverse-outline" style={styles.nativeFullAction}>Retake</Action>
+            <Action variant="secondary" onPress={() => capture(step)} icon="camera-reverse-outline" accessibilityLabel={`Retake the ${step} photo with the camera`} style={styles.nativeFullAction}>Retake</Action>
+            <Action variant="secondary" onPress={() => chooseFromLibrary(step)} icon="images-outline" accessibilityLabel={`Choose a different photo of the ${step} of the check`} style={styles.nativeFullAction}>Choose another photo</Action>
           </>
-          : <Action onPress={() => capture(step)} icon="camera-outline" style={styles.nativeFullAction}>Take photo</Action>}
+          : <>
+            <Action onPress={() => capture(step)} icon="camera-outline" accessibilityLabel={`Take a photo of the ${step} of the check`} style={styles.nativeFullAction}>Take photo</Action>
+            <Action variant="secondary" onPress={() => chooseFromLibrary(step)} icon="images-outline" accessibilityLabel={`Choose a photo of the ${step} of the check from your photos`} style={styles.nativeFullAction}>Choose from photos</Action>
+          </>}
         {cameraBlocked && <Action variant="secondary" onPress={() => Linking.openSettings()} icon="settings-outline" style={styles.nativeFullAction}>Open Settings</Action>}
-        {!apiConfigured && <LinkButton onPress={() => pickFromLibrary(step)}>Demo: choose a photo instead</LinkButton>}
         <LinkButton onPress={() => setStep(step === 'front' ? 'details' : 'front')}>Back</LinkButton>
       </View>
     </Card>}
