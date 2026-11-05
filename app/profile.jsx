@@ -19,7 +19,7 @@ export default function Profile() {
         <Field label="Phone number" value={profileDraft.phone} onChangeText={(value) => setProfileDraft((current) => ({ ...current, phone: value }))} keyboardType="phone-pad" />
         <View style={styles.field}><Text style={styles.fieldLabel}>Email address</Text><Text style={styles.readOnly}>{profile.email}</Text></View>
         <Action onPress={saveProfile} disabled={busy}>Save changes</Action>
-        {!apiConfigured && <LinkButton onPress={() => { setProfile((current) => ({ ...current, role: current.role === 'manager' ? 'customer' : 'manager' })); setNotice('Demo role changed.'); }}>Preview {isManager ? 'customer' : 'manager'} view</LinkButton>}
+        {!apiConfigured && <LinkButton onPress={() => { setProfile((current) => ({ ...current, role: current.role === 'admin' ? 'customer' : 'admin' })); setNotice('Demo role changed.'); }}>Preview {isManager ? 'customer' : 'manager'} view</LinkButton>}
       </Card>
       <Card style={styles.asideCard}>
         <Icon name="shield-checkmark-outline" size={27} />
