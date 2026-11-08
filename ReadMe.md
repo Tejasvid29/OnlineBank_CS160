@@ -8,7 +8,7 @@ The interface takes its blue-and-white palette and navigation from Chase's web d
 
 - Node.js 20+ and npm
 - Python 3.11+
-- A Supabase project (for API mode). Demo mode needs no backend.
+- A Supabase project (for API mode), **or** Docker Desktop to run Supabase locally (see [Run with a local Supabase](#run-with-a-local-supabase-no-cloud-account-needed)). Demo mode needs no backend.
 - An iOS simulator, Android emulator, or phone with Expo Go for the native app.
 
 ## 1. Run the web app (demo mode)
@@ -72,6 +72,71 @@ create policy "Users can view own row"
 
 To make someone an admin, set their `role` to `admin` in the Supabase table editor. Registration always creates `customer` accounts.
 
+## Run with a local Supabase (no cloud account needed)
+
+This is the way to test the project without access to our cloud Supabase project. The Supabase CLI runs Postgres, Auth and Storage in Docker on your machine, and the backend connects to it exactly as it would to the cloud. It replaces the manual SQL in the [Database](#database) section above: the full schema is in `supabase/migrations/`.
+
+**You need:** Docker Desktop (running), Node.js 20+, and Python 3.11+. You do **not** need a Supabase account. The first start downloads several GB of Docker images, so do it on a good connection.
+
+### 1. Start Supabase
+
+From the repository root:
+
+```bash
+npx supabase start       # first run is slow; leave Docker running
+npx supabase db reset    # builds the database from supabase/migrations/
+npx supabase status      # prints the local URL and keys
+```
+
+`db reset` creates every table, enum, function and RLS policy, the daily `process-due-payments` pg_cron job, and the private `check-deposits` Storage bucket.
+
+### 2. Point the backend at it
+
+Copy `backend/.env.example` to `backend/.env` and fill in these four values from `npx supabase status` (the CLI labels the keys *Publishable*/*Secret*, or *anon*/*service_role* on older versions):
+
+| Variable | Value |
+| --- | --- |
+| `SUPABASE_URL` | the API URL, normally `http://127.0.0.1:54321` |
+| `SUPABASE_PUBLISHABLE_KEY` | the publishable (anon) key |
+| `SUPABASE_SECRET_KEY` | the secret (service_role) key |
+| `SUPABASE_JWKS_URL` | `http://127.0.0.1:54321/auth/v1/.well-known/jwks.json` |
+
+If the backend runs **inside Docker**, use `http://host.docker.internal:54321` instead of `127.0.0.1` in the URL values (on Linux, also add `extra_hosts: ["host.docker.internal:host-gateway"]` to the service). Restart the backend after changing `.env`; it caches the Supabase client.
+
+### 3. Seed the demo users
+
+```bash
+cd backend
+.venv\Scripts\python seed_local.py       # macOS/Linux: .venv/bin/python seed_local.py
+```
+
+Run it after every `db reset`, which wipes all data. It is safe to run twice, and it refuses to run unless `SUPABASE_URL` is a local address, so it can never touch a cloud project.
+
+| Role | Email | Password |
+| --- | --- | --- |
+| Admin (staff dashboard) | `admin@bankdemo.dev` | `AdminDemo#2026` |
+| Customer | `customer@bankdemo.dev` | `CustomerDemo#2026` |
+
+The customer starts with a checking account ($2,015.70), a savings account ($5,300.00), a few transactions and one scheduled payment. These accounts exist only on your machine. The sign-up form accepts `@gmail.com` addresses only, so use the accounts above, or register a Gmail address.
+
+### 4. Check that it works
+
+- Open <http://127.0.0.1:8000/health/db>; it should return `{"status":"ok","supabase":"connected"}`.
+- Sign in with the customer account in the app (set `EXPO_PUBLIC_API_URL=http://localhost:8000` as in step 3 below).
+
+### Local tools
+
+| URL | What it is |
+| --- | --- |
+| <http://127.0.0.1:54323> | Supabase Studio: browse tables, run SQL, view Storage |
+| <http://127.0.0.1:54324> | Mailpit: password-reset and other auth emails land here, not in a real inbox |
+
+### Stopping, resetting, and safety
+
+- `npx supabase stop` shuts the stack down and keeps your data. `npx supabase db reset` rebuilds a clean database (then re-run the seed).
+- **Do not run `db push`, `db pull`, or `supabase link`.** Those talk to a cloud project. You have no credentials for ours, and this setup never needs them.
+- If `supabase start` fails, check that Docker is running and that ports 54321-54324 are free.
+
 ## 3. Connect the frontend to the backend
 
 ```bash
@@ -119,6 +184,8 @@ Before API-mode check deposits, the Supabase project needs `public.users` and `p
 | `backend/auth.py` | Auth routes and the auth/role dependencies |
 | `backend/deposits.py`, `backend/sql/check_deposits.sql` | Private mobile check intake and pending-record schema |
 | `backend/config.py`, `backend/db.py` | Settings from `.env` and the Supabase client |
+| `supabase/migrations/` | Full database schema, pg_cron job and Storage bucket for the local Supabase stack |
+| `backend/seed_local.py` | Seeds the local stack with demo admin and customer accounts (local only) |
 | `PROJECT_HANDOFF.md` | Architecture, design choices, status, and next steps |
 
 ## Verify
