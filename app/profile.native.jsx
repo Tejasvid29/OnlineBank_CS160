@@ -34,7 +34,7 @@ export default function Profile() {
     </Collapsible>
 
     {!apiConfigured && <View style={{ alignItems: 'center', marginBottom: 12 }}>
-      <LinkButton onPress={() => { setProfile((current) => ({ ...current, role: current.role === 'manager' ? 'customer' : 'manager' })); setNotice('Demo role changed.', 'info'); }}>Preview {isManager ? 'customer' : 'manager'} view</LinkButton>
+      <LinkButton onPress={() => { setProfile((current) => ({ ...current, role: current.role === 'admin' ? 'customer' : 'admin' })); setNotice('Demo role changed.', 'info'); }}>Preview {isManager ? 'customer' : 'manager'} view</LinkButton>
     </View>}
     <Action variant="secondary" icon="log-out-outline" onPress={signOut} style={styles.nativeFullAction}>Sign out</Action>
   </>;

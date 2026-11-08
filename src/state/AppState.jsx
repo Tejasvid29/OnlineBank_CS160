@@ -11,6 +11,7 @@ const todayString = () => { const now = new Date(); return new Date(now.getTime(
 const emptyRegisterDraft = { first_name: '', last_name: '', phone: '', zip_code: '', confirm: '' };
 const initialProfileDraft = apiConfigured ? { first_name: '', last_name: '', phone: '' } : { first_name: demoProfile.first_name, last_name: demoProfile.last_name, phone: demoProfile.phone };
 const initialManagerData = apiConfigured ? { customers: [], accounts: [], reports: [] } : demoManagerData;
+const emptyAuditLog = { customerId: null, entries: [] };
 const SESSION_EXPIRED = 'Your session has expired. Please sign in again.';
 const unwrap = (value, key) => Array.isArray(value) ? value : value?.[key] || [];
 const validEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
@@ -68,7 +69,7 @@ export function AppProvider({ children }) {
   const [managerReportFilter, setManagerReportFilter] = useState('All');
   const [showManagerReport, setShowManagerReport] = useState(false);
   const [reportResult, setReportResult] = useState(null);
-  const [auditLog, setAuditLog] = useState({ customerId: null, entries: [] });
+  const [auditLog, setAuditLog] = useState(emptyAuditLog);
   const [transferFrom, setTransferFrom] = useState('checking');
   const [transferTo, setTransferTo] = useState('savings');
   const [transferAmount, setTransferAmount] = useState('');
@@ -231,7 +232,7 @@ export function AppProvider({ children }) {
     setEmail(''); setPassword(''); setMfaCode(''); setRegisterDraft(emptyRegisterDraft);
     setProfile(apiConfigured ? {} : demoProfile); setAccounts(apiConfigured ? [] : demoAccounts); setTransactions(apiConfigured ? [] : demoTransactions);
     setPayments(apiConfigured ? [] : demoPayments); setNotifications(apiConfigured ? [] : demoNotifications); setCheckDeposits([]); setShowNotifications(false);
-    setManagerData(initialManagerData); setManagerSearch(''); setManagerReportFilter('All'); setShowManagerReport(false); setReportResult(null);
+    setManagerData(initialManagerData); setManagerSearch(''); setManagerReportFilter('All'); setShowManagerReport(false); setReportResult(null); setAuditLog(emptyAuditLog);
     setSelectedAccount('checking'); setPaymentAccount('checking'); setShowCreateAccount(false); setNewAccountType('checking'); setPendingCloseId(null);
     setTransferFrom('checking'); setTransferTo('savings'); setTransferAmount(''); setTransferNote('');
     setSendFrom(''); setSendRecipient(''); setSendAmount(''); setSendNote('');
