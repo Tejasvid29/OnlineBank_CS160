@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { apiConfigured, bankingApi, clearSession, hasSession, onSessionExpired, refreshSession, sessionExpiresSoon, setSession, storedRefreshToken } from '../services/api';
 import { buildReport, demoAccounts, demoAtms, demoManagerData, demoNotifications, demoPayments, demoProfile, demoTransactions } from '../data/demo';
 import { isActivated, money, titleCase } from '../theme';
+import { ATM_DAILY_LIMIT, ATM_MAX_DEPOSIT, ATM_MAX_WITHDRAWAL } from '../data/atmLimits';
 
 const isWeb = Platform.OS === 'web';
 // Local date as YYYY-MM-DD, computed when needed so an app left open past midnight stays correct.
@@ -269,6 +270,44 @@ export function AppProvider({ children }) {
     finally { setBusy(false); }
   }
 
+  // How much more can be taken out of this account at ATMs today (rolling 24 hours). The server enforces the same limit.
+  function atmWithdrawalAllowance(accountId) {
+    const since = Date.now() - 24 * 60 * 60 * 1000;
+    const used = transactions
+      .filter((item) => item.account_id === accountId && item.amount < 0 && String(item.description).startsWith('ATM withdrawal') && new Date(item.created_at).getTime() > since)
+      .reduce((sum, item) => sum - Number(item.amount), 0);
+    return Math.max(0, ATM_DAILY_LIMIT - used);
+  }
+
+  // Simulated ATM session. kind is 'deposit' or 'withdrawal'. Resolves to the account's new balance and
+  // rejects with a readable message, so the ATM screen can show it on the machine itself.
+  async function atmTransaction({ kind, accountId, amount, atm }) {
+    const account = accounts.find((item) => item.id === accountId);
+    if (!account || account.account_type !== 'checking' || !isActivated(account)) throw new Error('Choose one of your checking accounts.');
+    if (!validMoney(amount)) throw new Error('Enter an amount greater than $0 with up to two decimal places.');
+    const value = Number(amount);
+    const deposit = kind === 'deposit';
+    if (deposit) {
+      if (!Number.isInteger(value)) throw new Error('ATM cash deposits must be whole dollar amounts.');
+      if (value > ATM_MAX_DEPOSIT) throw new Error(`The most you can deposit at once is ${money(ATM_MAX_DEPOSIT)}.`);
+    } else {
+      if (value > ATM_MAX_WITHDRAWAL) throw new Error(`The most you can withdraw at once is ${money(ATM_MAX_WITHDRAWAL)}.`);
+      if (value > Number(account.balance)) throw new Error('Insufficient funds for this withdrawal.');
+      if (value > atmWithdrawalAllowance(accountId)) throw new Error(`This would exceed your ${money(ATM_DAILY_LIMIT)} daily ATM withdrawal limit.`);
+    }
+    const description = `ATM ${deposit ? 'deposit' : 'withdrawal'} \u00b7 ${atm.name}`;
+    if (apiConfigured) {
+      await (deposit ? bankingApi.atmDeposit : bankingApi.atmWithdraw)(accountId, value, atm.name);
+      await loadData();
+    } else {
+      const stamp = new Date().toISOString();
+      const signed = deposit ? value : -value;
+      setAccounts((current) => current.map((item) => item.id === accountId ? { ...item, balance: item.balance + signed } : item));
+      setTransactions((current) => [{ id: `demo-atm-${stamp}`, account_id: accountId, description, transaction_type: deposit ? 'Deposit' : 'Withdrawal', amount: signed, created_at: stamp, status: 'Completed' }, ...current]);
+    }
+    return Number(account.balance) + (deposit ? value : -value);
+  }
+
   async function submitSendMoney() {
     const amount = Number(sendAmount);
     const recipient = sendRecipient.replace(/\s/g, '');
@@ -299,13 +338,21 @@ export function AppProvider({ children }) {
     if (!payee.trim()) { setNotice('Enter a payee name.'); return; }
     if (!fromAccount) { setNotice('Choose an open account to pay from.'); return; }
     if (!validMoney(paymentAmount)) { setNotice('Enter an amount greater than $0 with up to two decimal places.'); return; }
-    if (!validDate(paymentDate) || paymentDate < todayString()) { setNotice('Enter a valid date today or later as YYYY-MM-DD.'); return; }
+    // A one-time payment is paid right away, so it has no date; recurring ones start on the chosen date.
+    const immediate = frequency === 'Once';
+    if (!immediate && (!validDate(paymentDate) || paymentDate < todayString())) { setNotice('Enter a valid date today or later as YYYY-MM-DD.'); return; }
+    const source = accounts.find((item) => item.id === fromAccount);
+    if (immediate && source && amount > Number(source.balance)) { setNotice('The account has insufficient funds for this payment.'); return; }
     setBusy(true); setNotice('');
     try {
-      const payload = { account_id: fromAccount, recipient: payee.trim(), amount, next_payment_date: paymentDate, frequency: frequency.toLowerCase() };
+      const payload = { account_id: fromAccount, recipient: payee.trim(), amount, frequency: frequency.toLowerCase(), ...(immediate ? {} : { next_payment_date: paymentDate }) };
       if (apiConfigured) { await bankingApi.createPayment(payload); await loadData(); }
-      else setPayments((current) => [{ ...payload, id: `demo-${Date.now()}`, frequency, status: 'Scheduled' }, ...current]);
-      setPayee(''); setPaymentAmount(''); setPaymentDate(''); setNotice('Your payment was scheduled.', 'success');
+      else if (immediate) {
+        const stamp = new Date().toISOString();
+        setAccounts((current) => current.map((item) => item.id === fromAccount ? { ...item, balance: item.balance - amount } : item));
+        setTransactions((current) => [{ id: `demo-bill-${stamp}`, account_id: fromAccount, description: `Bill payment: ${payload.recipient}`, transaction_type: 'Withdrawal', amount: -amount, created_at: stamp, status: 'Completed' }, ...current]);
+      } else setPayments((current) => [{ ...payload, id: `demo-${Date.now()}`, frequency, status: 'Scheduled' }, ...current]);
+      setPayee(''); setPaymentAmount(''); setPaymentDate(''); setNotice(immediate ? `Your payment of ${money(amount)} to ${payload.recipient} was made.` : 'Your payment was scheduled.', 'success');
     } catch (error) { fail(error); }
     finally { setBusy(false); }
   }
@@ -471,7 +518,7 @@ export function AppProvider({ children }) {
     transactionType, setTransactionType, transactionStart, setTransactionStart, transactionEnd, setTransactionEnd, profileDraft,
     setProfileDraft, unread, isManager, total, visibleTransactions, accountOptions,
     navigate, signIn, verifyMfa, resetPassword, signOut, submitTransfer, submitPayment, cancelPayment, createAccount,
-    closeAccount, findAtms, findAtmsNear, depositError, submitDeposit, saveProfile, markRead, openManager,
+    closeAccount, findAtms, findAtmsNear, atmTransaction, atmWithdrawalAllowance, depositError, submitDeposit, saveProfile, markRead, openManager,
     reportResult, runReport, auditLog, loadAuditLog,
   };
 

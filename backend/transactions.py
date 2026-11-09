@@ -21,6 +21,8 @@ DB_ERRORS = {
     "account_not_found": (status.HTTP_404_NOT_FOUND, "Account not found."),
     "account_closed": (status.HTTP_409_CONFLICT, "This account is closed."),
     "insufficient_funds": (status.HTTP_409_CONFLICT, "Insufficient funds."),
+    "not_checking_account": (status.HTTP_409_CONFLICT, "ATMs can only be used with a checking account."),
+    "daily_limit_exceeded": (status.HTTP_409_CONFLICT, "This would exceed your daily ATM withdrawal limit."),
     "same_account": (status.HTTP_400_BAD_REQUEST, "Choose two different accounts."),
     "invalid_amount": (status.HTTP_400_BAD_REQUEST, "Enter an amount greater than $0."),
     "recipient_not_found": (status.HTTP_404_NOT_FOUND, "No active account matches that account number."),

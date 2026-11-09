@@ -3,12 +3,13 @@ from decimal import Decimal
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from supabase import Client
 
 from accounts import _get_own_account
 from auth import get_current_user, require_role
 from db import get_supabase
+from transactions import _rpc
 
 router = APIRouter(prefix="/bill-payments", tags=["bill-payments"])
 
@@ -22,7 +23,7 @@ class SchedulePaymentRequest(BaseModel):
     recipient: str = Field(min_length=1, max_length=100)
     amount: Money
     frequency: Literal["once", "daily", "weekly", "monthly"] = "once"
-    next_payment_date: date
+    next_payment_date: date | None = None  # a 'once' payment is paid immediately, so it needs no date
 
     @field_validator("frequency", mode="before")
     @classmethod
@@ -39,11 +40,19 @@ class SchedulePaymentRequest(BaseModel):
 
     @field_validator("next_payment_date")
     @classmethod
-    def _not_past(cls, value: date):
+    def _not_past(cls, value: date | None):
+        if value is None:
+            return value
         # One day of slack: the app validates against the customer's local date, the server runs on UTC.
         if value < date.today() - timedelta(days=1):
             raise ValueError("Payment date cannot be in the past.")
         return value
+
+    @model_validator(mode="after")
+    def _date_for_recurring(self):
+        if self.frequency != "once" and self.next_payment_date is None:
+            raise ValueError("Choose the date of the first payment.")
+        return self
 
 
 def _out(row: dict) -> dict:
@@ -70,6 +79,12 @@ def schedule_payment(body: SchedulePaymentRequest, user: dict = Depends(get_curr
     account = _get_own_account(db, user["id"], body.account_id)
     if account["status"] != "activated":
         raise HTTPException(status.HTTP_409_CONFLICT, "This account is closed.")
+    if body.frequency == "once":
+        # Paid right now, atomically; an unaffordable payment fails and nothing is recorded.
+        row = _rpc(db, "pay_bill_now", {
+            "p_user_id": user["id"], "p_account_id": body.account_id, "p_recipient": body.recipient, "p_amount": str(body.amount),
+        })
+        return {"payment": _out(row)}
     row = db.table("scheduled_payments").insert({
         "account_id": body.account_id, "customer_id": user["id"], "recipient": body.recipient,
         "amount": str(body.amount), "frequency": body.frequency, "next_payment_date": body.next_payment_date.isoformat(),

@@ -14,7 +14,7 @@ export default function Payments() {
 
   return <>
     <SectionHeading title="Bill payments" subtitle="Schedule a payment and keep track of what’s next." />
-    <Notice text={notice} kind={notice.includes('scheduled') || notice.includes('canceled') ? 'success' : 'error'} />
+    <Notice text={notice} kind={notice.includes('scheduled') || notice.includes('canceled') || notice.includes('was made') ? 'success' : 'error'} />
     <View style={[styles.twoColumns, compact && styles.stack]}>
       <Card style={styles.formCard}>
         <Text style={styles.cardTitle}>Schedule a payment</Text>
@@ -23,9 +23,11 @@ export default function Payments() {
           ? <Choice label="Pay from" value={paymentAccount || accountOptions[0].value} options={accountOptions} onChange={setPaymentAccount} />
           : <View style={styles.field}><Text style={styles.fieldLabel}>Pay from</Text><Text style={styles.bodyText}>You need an open account to schedule payments.</Text><LinkButton onPress={() => navigate('/accounts')} icon="arrow-forward">Open an account</LinkButton></View>}
         <Field label="Amount" value={paymentAmount} onChangeText={setPaymentAmount} keyboardType="decimal-pad" placeholder="0.00" />
-        <Field label="Payment date" value={paymentDate} onChangeText={setPaymentDate} placeholder="YYYY-MM-DD" accessibilityHint="Enter a date in year-month-day format" />
         <Choice label="Repeat" value={frequency} options={['Once', 'Daily', 'Weekly', 'Monthly'].map((value) => ({ label: value, value }))} onChange={setFrequency} />
-        <Action onPress={submitPayment} disabled={busy} icon="calendar-outline">{busy ? 'Working…' : 'Schedule payment'}</Action>
+        {frequency === 'Once'
+          ? <Text style={styles.rowSub}>A one-time payment is paid immediately from your account.</Text>
+          : <Field label="Date of first payment" value={paymentDate} onChangeText={setPaymentDate} placeholder="YYYY-MM-DD" accessibilityHint="Enter a date in year-month-day format" />}
+        <Action onPress={submitPayment} disabled={busy} icon={frequency === 'Once' ? 'card-outline' : 'calendar-outline'}>{busy ? 'Working…' : frequency === 'Once' ? 'Pay now' : 'Schedule payment'}</Action>
       </Card>
       <Card style={styles.columnCard}>
         <Text style={styles.cardTitle}>Upcoming payments</Text>
