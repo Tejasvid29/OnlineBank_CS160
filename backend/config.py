@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     check_deposit_bucket: str = "check-deposits"
     # Where the password-reset email link sends the user. Must also be in Supabase's Redirect URLs.
     app_url: str = "http://localhost:8081"
+    # Resend API key for emails the backend sends itself (e.g. the account-locked notice). Unset = those emails are skipped.
+    resend_api_key: str = ""
+    mail_from: str = "OnlineBank <onboarding@resend.dev>"
     cors_origins: str = "http://localhost:8081,http://localhost:19006"
 
 

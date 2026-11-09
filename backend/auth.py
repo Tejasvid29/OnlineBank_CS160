@@ -1,4 +1,6 @@
 import logging
+import math
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
@@ -10,6 +12,7 @@ import audit
 from audit import record_event
 from config import settings
 from db import get_supabase
+from mailer import send_email
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -20,6 +23,8 @@ GMAIL_ONLY_MESSAGE = (
     "send emails to the same domain as the email I registered with to get the API Key, thanks."
 )
 INVALID_LOGIN = "Invalid email or password."
+MAX_FAILED_LOGINS = 3
+LOCKOUT_SECONDS = 5 * 60
 
 
 class RegisterRequest(BaseModel):
@@ -86,6 +91,71 @@ def _session_out(session, profile: dict) -> dict:
     }
 
 
+def _find_login_account(db: Client, email: str) -> dict | None:
+    rows = (
+        db.table("users").select("id, email, failed_login_attempts, locked_until").eq("email", email.lower()).limit(1).execute().data
+    )
+    return rows[0] if rows else None
+
+
+def _minutes_left(locked_until: str) -> int:
+    remaining = datetime.fromisoformat(locked_until) - datetime.now(timezone.utc)
+    return max(1, math.ceil(remaining.total_seconds() / 60))
+
+
+def _locked_out(locked_until: str) -> HTTPException:
+    minutes = _minutes_left(locked_until)
+    return HTTPException(
+        status.HTTP_429_TOO_MANY_REQUESTS,
+        f"Too many failed sign-in attempts. This account is locked. Try again in {minutes} minute{'s' if minutes != 1 else ''}.",
+        headers={"Retry-After": str(minutes * 60)},
+    )
+
+
+def _reject_if_locked(account: dict) -> None:
+    locked_until = account.get("locked_until")
+    if locked_until and datetime.fromisoformat(locked_until) > datetime.now(timezone.utc):
+        raise _locked_out(locked_until)
+
+
+def _register_failed_login(db: Client, account: dict | None, email: str) -> None:
+    """Count a failed attempt; on the MAX_FAILED_LOGINS-th, lock the account, email the owner and log it."""
+    if not account:
+        return  # Unknown email: nothing to lock, and the response stays identical.
+    locked_until = db.rpc(
+        "record_failed_login",
+        {"p_user_id": account["id"], "p_max_attempts": MAX_FAILED_LOGINS, "p_lock_seconds": LOCKOUT_SECONDS},
+    ).execute().data
+    if not locked_until:
+        return
+    record_event(db, account["id"], audit.ACCOUNT_LOCKED, {"locked_until": locked_until, "failed_attempts": MAX_FAILED_LOGINS})
+    reset_link = _recovery_link(db, email)
+    send_email(
+        email,
+        "Your OnlineBank account has been locked",
+        f"Your account was locked for {LOCKOUT_SECONDS // 60} minutes after {MAX_FAILED_LOGINS} failed sign-in attempts.\n\n"
+        + (
+            f"If this was you, you can reset your password now (this also unlocks your account):\n{reset_link}\n\n"
+            if reset_link
+            else "If this was you, you can try again after that, or use \"Forgot password\" on the sign-in page.\n\n"
+        )
+        + "If this wasn't you, reset your password and contact your banking team.",
+    )
+    raise _locked_out(locked_until)
+
+
+def _recovery_link(db: Client, email: str) -> str | None:
+    """A password-reset link for the lock email. Supabase only builds it; the backend's mailer sends it."""
+    try:
+        result = db.auth.admin.generate_link(
+            {"type": "recovery", "email": email, "options": {"redirect_to": f"{settings.app_url.rstrip('/')}/reset-password"}}
+        )
+    except AuthApiError:
+        logger.exception("Could not generate a recovery link for the lock email")
+        return None
+    return result.properties.action_link
+
+
 def _bearer_token(authorization: Annotated[str | None, Header()] = None) -> str:
     scheme, _, token = (authorization or "").partition(" ")
     if scheme.lower() != "bearer" or not token:
@@ -150,13 +220,21 @@ def register(body: RegisterRequest, db: Client = Depends(get_supabase)):
 @router.post("/login")
 def login(body: LoginRequest, db: Client = Depends(get_supabase)):
     # A throwaway client keeps the user's session off the shared admin client.
+    account = _find_login_account(db, body.email)
+    if account:
+        _reject_if_locked(account)
+
     auth_client = create_client(settings.supabase_url, settings.supabase_publishable_key)
     try:
         result = auth_client.auth.sign_in_with_password({"email": body.email, "password": body.password})
     except AuthApiError:
+        _register_failed_login(db, account, body.email)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, INVALID_LOGIN)
     if result.session is None or result.user is None:
+        _register_failed_login(db, account, body.email)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, INVALID_LOGIN)
+    if account and account.get("failed_login_attempts"):
+        db.table("users").update({"failed_login_attempts": 0, "locked_until": None}).eq("id", account["id"]).execute()
     return _session_out(result.session, _load_profile(db, result.user.id))
 
 
@@ -216,6 +294,8 @@ def reset_password(body: ResetPasswordRequest, db: Client = Depends(get_supabase
         db.auth.admin.update_user_by_id(result.user.id, {"password": body.password})
     except AuthApiError as error:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, error.message)
+    # Resetting the password proves ownership, so it also lifts any failed-login lockout.
+    db.table("users").update({"failed_login_attempts": 0, "locked_until": None}).eq("id", result.user.id).execute()
     record_event(db, result.user.id, audit.PASSWORD_RESET)
 
 

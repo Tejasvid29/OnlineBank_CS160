@@ -73,6 +73,7 @@ class SupabaseStub:
         self.mock.auth.get_user.return_value = SimpleNamespace(
             user=SimpleNamespace(id=USER_ID)
         )
+        self.mock.rpc.return_value.execute.return_value.data = None  # record_failed_login: not locked
         self._sync_profile_rows()
 
     def _sync_profile_rows(self) -> None:

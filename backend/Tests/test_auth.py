@@ -331,6 +331,7 @@ def test_login_success(monkeypatch):
 #test8 incorrect password
 def test_login_wrong_password(monkeypatch):
     fake_db = MagicMock()
+    fake_db.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value.data = []
     fake_auth_client = MagicMock()
 
     class FakeAuthError(Exception):
@@ -369,12 +370,13 @@ def test_login_wrong_password(monkeypatch):
         "email": "test@example.com",
         "password": "WrongPassword123!"
     })
-    fake_db.table.assert_not_called()
+    fake_db.rpc.assert_not_called()  # unknown email: no attempt is counted
 
 
 #test9 invalid email
 def test_login_unregistered_email(monkeypatch):
     fake_db = MagicMock()
+    fake_db.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value.data = []
     fake_auth_client = MagicMock()
 
     class FakeAuthError(Exception):
@@ -412,7 +414,7 @@ def test_login_unregistered_email(monkeypatch):
 
     fake_auth_client.auth.sign_in_with_password.assert_called_once()
 
-    fake_db.table.assert_not_called()
+    fake_db.rpc.assert_not_called()  # unknown email: no attempt is counted
 
 
 #test10 empty email/password

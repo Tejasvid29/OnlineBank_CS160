@@ -6,6 +6,7 @@ logger = logging.getLogger(__name__)
 
 ACCOUNT_REGISTERED = "account_registered"
 PASSWORD_RESET = "password_reset"
+ACCOUNT_LOCKED = "account_locked"
 PROFILE_UPDATED = "profile_updated"
 BANK_ACCOUNT_OPENED = "bank_account_opened"
 BANK_ACCOUNT_CLOSED = "bank_account_closed"

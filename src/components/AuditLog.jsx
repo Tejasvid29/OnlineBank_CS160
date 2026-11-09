@@ -10,6 +10,7 @@ function describe({ action, details = {} }) {
   const account = details.account_number ? `${titleCase(details.account_type)} ${details.account_number}` : '';
   switch (action) {
     case 'account_registered': return 'Registered a new account';
+    case 'account_locked': return `Locked after ${details.failed_attempts || 'repeated'} failed sign-in attempts`;
     case 'password_reset': return 'Password reset';
     case 'bank_account_opened': return `Opened ${account}`;
     case 'bank_account_closed': return `Closed ${account}`;
