@@ -5,6 +5,7 @@ export const NAV = [
   ['/send', 'Send Money', 'paper-plane-outline'],
   ['/payments', 'Bill payments', 'calendar-outline'],
   ['/activity', 'Activity', 'list-outline'],
+  ['/statements', 'Statements', 'document-text-outline'],
   ['/checks', 'Deposit checks', 'camera-outline'],
   ['/atms', 'Find an ATM', 'location-outline'],
   ['/profile', 'Profile & settings', 'person-outline'],
@@ -26,6 +27,7 @@ export const MOBILE_PAY_NAV = [
 export const MOBILE_MORE = [
   ['/send', 'Send Money', 'paper-plane-outline'],
   ['/activity', 'Activity', 'list-outline'],
+  ['/statements', 'Statements', 'document-text-outline'],
   ['/atms', 'Find an ATM', 'location-outline'],
   ['/profile', 'Profile & settings', 'person-outline'],
 ];
