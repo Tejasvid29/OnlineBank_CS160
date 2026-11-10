@@ -618,12 +618,11 @@ def test_reset_password_rejects_bad_token(client, supabase):
     supabase.mock.auth.admin.update_user_by_id.assert_not_called()
 
 
-@pytest.mark.parametrize("email", ["test@example.com", "student@sjsu.edu", "test@gmail.com.evil.org", "test@notgmail.com"])
-def test_register_rejects_non_gmail(client, supabase, email):
+@pytest.mark.parametrize("email", ["test@example.com", "student@sjsu.edu", "someone@gmail.com"])
+def test_register_accepts_any_email_domain(client, supabase, email):
     response = client.post("/auth/register", json={
         "first_name": "Test", "last_name": "User", "email": email, "password": "Password123!",
     })
 
-    assert response.status_code == 422
-    assert "only allowing @gmail email addresses" in response.json()["detail"][0]["msg"]
-    supabase.mock.auth.admin.create_user.assert_not_called()
+    assert response.status_code == 201
+    supabase.mock.auth.admin.create_user.assert_called_once()
