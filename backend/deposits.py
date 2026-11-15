@@ -193,6 +193,7 @@ IMAGE_URL_SECONDS = 300
 # Raised by review_check_deposit().
 REVIEW_ERRORS = {
     "deposit_not_found": (status.HTTP_404_NOT_FOUND, "Check deposit not found."),
+    "own_deposit": (status.HTTP_403_FORBIDDEN, "You can't review your own check deposit. Ask another manager."),
     "already_reviewed": (status.HTTP_409_CONFLICT, "This check deposit has already been reviewed."),
     "account_closed": (status.HTTP_409_CONFLICT, "The account for this deposit is closed, so it can't be approved. Reject it instead."),
     "account_not_found": (status.HTTP_404_NOT_FOUND, "The account for this deposit no longer exists."),

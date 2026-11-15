@@ -85,6 +85,8 @@ class Database:
                 raise RuntimeError("notes_required")
             if deposit is None:
                 raise RuntimeError("deposit_not_found")
+            if deposit["customer_id"] == params["p_reviewer_id"]:
+                raise RuntimeError("own_deposit")
             if deposit["status"] != "pending":
                 raise RuntimeError("already_reviewed")
             if params["p_decision"] == "approve":
@@ -221,3 +223,17 @@ def test_reject_keeps_balance_and_fails_transaction(admin, db):
     assert db.tables["audit_log"][0]["action"] == "check_deposit_rejected"
     assert db.tables["audit_log"][0]["details"]["notes"] == "Signature missing"
     assert admin.post(url(f"/{DEPOSIT_ID}/approve")).status_code == 409
+
+
+def test_manager_cannot_review_own_deposit(db):
+    db.deposit["customer_id"] = ADMIN_ID
+    try:
+        with make_client(db, ADMIN) as own:
+            for action, body in (("approve", None), ("reject", {"notes": "No"})):
+                response = own.post(url(f"/{DEPOSIT_ID}/{action}"), json=body)
+                assert response.status_code == 403
+                assert "your own" in response.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+    assert db.account["balance"] == 100.0 and db.deposit["status"] == "pending"
+    assert db.transaction["status"] == "pending" and db.tables["audit_log"] == []
