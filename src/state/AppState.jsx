@@ -13,6 +13,8 @@ const emptyRegisterDraft = { first_name: '', last_name: '', phone: '', zip_code:
 const initialProfileDraft = apiConfigured ? { first_name: '', last_name: '', phone: '' } : { first_name: demoProfile.first_name, last_name: demoProfile.last_name, phone: demoProfile.phone };
 const initialManagerData = apiConfigured ? { customers: [], accounts: [], reports: [] } : demoManagerData;
 const emptyAuditLog = { customerId: null, entries: [] };
+// Manager check review: the list for the chosen status, and the deposit opened for review (with signed image URLs).
+const emptyCheckReview = { status: 'pending', deposits: [], detail: null };
 const SESSION_EXPIRED = 'Your session has expired. Please sign in again.';
 const unwrap = (value, key) => Array.isArray(value) ? value : value?.[key] || [];
 const validEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
@@ -71,6 +73,7 @@ export function AppProvider({ children }) {
   const [showManagerReport, setShowManagerReport] = useState(false);
   const [reportResult, setReportResult] = useState(null);
   const [auditLog, setAuditLog] = useState(emptyAuditLog);
+  const [checkReview, setCheckReview] = useState(emptyCheckReview);
   const [transferFrom, setTransferFrom] = useState('checking');
   const [transferTo, setTransferTo] = useState('savings');
   const [transferAmount, setTransferAmount] = useState('');
@@ -232,7 +235,7 @@ export function AppProvider({ children }) {
     setEmail(''); setPassword(''); setMfaCode(''); setRegisterDraft(emptyRegisterDraft);
     setProfile(apiConfigured ? {} : demoProfile); setAccounts(apiConfigured ? [] : demoAccounts); setTransactions(apiConfigured ? [] : demoTransactions);
     setPayments(apiConfigured ? [] : demoPayments); setNotifications(apiConfigured ? [] : demoNotifications); setCheckDeposits([]); setShowNotifications(false);
-    setManagerData(initialManagerData); setManagerSearch(''); setManagerReportFilter('All'); setShowManagerReport(false); setReportResult(null); setAuditLog(emptyAuditLog);
+    setManagerData(initialManagerData); setManagerSearch(''); setManagerReportFilter('All'); setShowManagerReport(false); setReportResult(null); setAuditLog(emptyAuditLog); setCheckReview(emptyCheckReview);
     setSelectedAccount('checking'); setPaymentAccount('checking'); setShowCreateAccount(false); setNewAccountType('checking'); setPendingCloseId(null);
     setTransferFrom('checking'); setTransferTo('savings'); setTransferAmount(''); setTransferNote('');
     setSendFrom(''); setSendRecipient(''); setSendAmount(''); setSendNote('');
@@ -440,7 +443,8 @@ export function AppProvider({ children }) {
       } else {
         // Demo: the deposit waits for review, so balances stay the same until it clears.
         const stamp = new Date().toISOString();
-        deposit = { id: `demo-deposit-${stamp}`, account_id: accountId, amount: value, status: 'pending', created_at: stamp };
+        // Demo only: keep the photo URIs so the manager review can show them.
+        deposit = { id: `demo-deposit-${stamp}`, account_id: accountId, amount: value, status: 'pending', created_at: stamp, front_uri: front.uri, back_uri: back.uri };
         setCheckDeposits((current) => [deposit, ...current]);
         setTransactions((current) => [{ id: `demo-deposit-${stamp}`, account_id: accountId, description: 'Mobile check deposit', transaction_type: 'Deposit', amount: value, created_at: stamp, status: 'Pending' }, ...current]);
         setNotifications((current) => [{ id: `demo-n-${stamp}`, notification_type: 'Deposit', message: `Your check deposit of ${money(value)} was received and is pending review.`, created_at: stamp, read: false }, ...current]);
@@ -471,15 +475,87 @@ export function AppProvider({ children }) {
     } catch (error) { fail(error); }
   }
 
+  async function loadManagerData() {
+    const [customers, managerAccounts] = await Promise.all([bankingApi.managerCustomers(), bankingApi.managerAccounts()]);
+    setManagerData({ customers: unwrap(customers, 'customers'), accounts: unwrap(managerAccounts, 'accounts'), reports: [] });
+  }
+
   async function openManager() {
     if (!isManager) return;
     navigate('/manager');
     if (apiConfigured) {
-      try {
-        const [customers, managerAccounts] = await Promise.all([bankingApi.managerCustomers(), bankingApi.managerAccounts()]);
-        setManagerData({ customers: unwrap(customers, 'customers'), accounts: unwrap(managerAccounts, 'accounts'), reports: [] });
-      } catch (error) { fail(error); }
+      try { await Promise.all([loadManagerData(), loadCheckReviews()]); } catch (error) { fail(error); }
     }
+  }
+
+  // Demo: the review queue is the demo deposits from submitDeposit, shaped like the backend's review rows.
+  function demoReviewRow(deposit) {
+    const account = accounts.find((item) => item.id === deposit.account_id) || {};
+    return {
+      ...deposit,
+      customer: { first_name: profile.first_name, last_name: profile.last_name, email: profile.email },
+      account: { account_type: account.account_type, account_number: account.account_number, status: account.status },
+      front_image_url: deposit.front_uri || null, back_image_url: deposit.back_uri || null,
+    };
+  }
+  const byDate = (newestFirst) => (a, b) => newestFirst ? b.created_at.localeCompare(a.created_at) : a.created_at.localeCompare(b.created_at);
+  const checkReviewList = apiConfigured ? checkReview.deposits : checkDeposits
+    .filter((item) => checkReview.status === 'all' || item.status === checkReview.status)
+    .sort(byDate(checkReview.status !== 'pending')).map(demoReviewRow);
+  const demoDetail = !apiConfigured && checkReview.detail && checkDeposits.find((item) => item.id === checkReview.detail.id);
+  const checkReviewDetail = apiConfigured ? checkReview.detail : demoDetail ? demoReviewRow(demoDetail) : null;
+
+  // Loads the check deposits with this status ('pending', 'approved', 'rejected' or 'all') for review (manager only).
+  // Throws on failure so openManager can report it once; screens use refreshCheckReviews.
+  async function loadCheckReviews(status = checkReview.status) {
+    setCheckReview((current) => ({ ...current, status, ...(status !== current.status ? { deposits: [], detail: null } : {}) }));
+    if (!apiConfigured) return;
+    const result = await bankingApi.managerCheckDeposits(status);
+    setCheckReview((current) => current.status === status ? { ...current, deposits: unwrap(result, 'deposits') } : current);
+  }
+
+  async function refreshCheckReviews(status) {
+    setNotice('');
+    try { await loadCheckReviews(status); } catch (error) { fail(error); }
+  }
+
+  // Opens one deposit for review, with fresh signed image URLs; null closes it.
+  async function openCheckReview(id) {
+    setNotice('');
+    setCheckReview((current) => ({ ...current, detail: id ? { id } : null }));
+    if (!apiConfigured || !id) return;
+    try {
+      const result = await bankingApi.managerCheckDeposit(id);
+      setCheckReview((current) => current.detail?.id === id ? { ...current, detail: result.deposit } : current);
+    } catch (error) { fail(error); }
+  }
+
+  // decision is 'approve' or 'reject'. Returns true when the deposit was reviewed.
+  async function reviewCheckDeposit(deposit, decision, notes = '') {
+    const reason = notes.trim();
+    if (decision === 'reject' && !reason) { setNotice('Enter a reason for rejecting this check.'); return false; }
+    setBusy(true); setNotice('');
+    try {
+      if (apiConfigured) {
+        await (decision === 'approve' ? bankingApi.approveCheckDeposit(deposit.id) : bankingApi.rejectCheckDeposit(deposit.id, reason));
+        setCheckReview((current) => ({ ...current, detail: null }));
+        // The decision is saved; a failed refresh only leaves the lists stale.
+        try { await Promise.all([loadManagerData(), loadCheckReviews()]); } catch { /* Refresh pulls them again. */ }
+      } else {
+        const account = accounts.find((item) => item.id === deposit.account_id);
+        if (decision === 'approve' && !isActivated(account || {})) throw new Error("The account for this deposit is closed, so it can't be approved. Reject it instead.");
+        const stamp = new Date().toISOString();
+        const approved = decision === 'approve';
+        setCheckDeposits((current) => current.map((item) => item.id === deposit.id ? { ...item, status: approved ? 'approved' : 'rejected', review_notes: reason || null, reviewed_at: stamp } : item));
+        // Like the backend: an approved check posts on the approval date; a rejected one never touches the balance.
+        setTransactions((current) => current.map((item) => item.id === deposit.id ? { ...item, status: approved ? 'Completed' : 'Failed', ...(approved ? { created_at: stamp } : {}) } : item));
+        if (approved) setAccounts((current) => current.map((item) => item.id === deposit.account_id ? { ...item, balance: item.balance + deposit.amount } : item));
+        setCheckReview((current) => ({ ...current, detail: null }));
+      }
+      setNotice(decision === 'approve' ? `Check deposit of ${money(deposit.amount)} approved and credited.` : `Check deposit of ${money(deposit.amount)} rejected.`, 'success');
+      return true;
+    } catch (error) { fail(error); return false; }
+    finally { setBusy(false); }
   }
 
   // Loads the audit trail for one customer (manager only). Demo mode has no backend, so the trail is empty.
@@ -519,6 +595,7 @@ export function AppProvider({ children }) {
     navigate, signIn, verifyMfa, resetPassword, signOut, submitTransfer, submitPayment, cancelPayment, createAccount,
     closeAccount, findAtms, findAtmsNear, atmTransaction, atmWithdrawalAllowance, depositError, submitDeposit, saveProfile, markRead, openManager,
     reportResult, runReport, auditLog, loadAuditLog,
+    checkReviewStatus: checkReview.status, checkReviewList, checkReviewDetail, refreshCheckReviews, openCheckReview, reviewCheckDeposit,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { titleCase } from '../theme';
+import { money, titleCase } from '../theme';
 import { styles } from '../styles/appStyles';
 import { useApp } from '../state/AppState';
 
@@ -14,6 +14,8 @@ function describe({ action, details = {} }) {
     case 'password_reset': return 'Password reset';
     case 'bank_account_opened': return `Opened ${account}`;
     case 'bank_account_closed': return `Closed ${account}`;
+    case 'check_deposit_approved': return `Check deposit of ${money(details.amount || 0)} to ${account || 'an account'} approved`;
+    case 'check_deposit_rejected': return `Check deposit of ${money(details.amount || 0)} to ${account || 'an account'} rejected${details.notes ? `: ${details.notes}` : ''}`;
     case 'profile_updated': return Object.entries(details.changes || {})
       .map(([field, { from, to }]) => `${FIELD_LABELS[field] || titleCase(field)}: ${from || 'empty'} → ${to || 'empty'}`)
       .join('; ') || 'Profile updated';

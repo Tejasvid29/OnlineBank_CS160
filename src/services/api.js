@@ -133,4 +133,8 @@ export const bankingApi = {
   managerAccounts: () => api('/manager/accounts'),
   managerAuditLog: (customerId) => api(`/manager/customers/${encodeURIComponent(customerId)}/audit-log`),
   managerReportSummary: (params) => api(`/manager/reports/summary?${new URLSearchParams(params)}`),
+  managerCheckDeposits: (status = 'pending') => api(`/manager/check-deposits?status=${encodeURIComponent(status)}`),
+  managerCheckDeposit: (id) => api(`/manager/check-deposits/${encodeURIComponent(id)}`),
+  approveCheckDeposit: (id) => api(`/manager/check-deposits/${encodeURIComponent(id)}/approve`, { method: 'POST' }),
+  rejectCheckDeposit: (id, notes) => api(`/manager/check-deposits/${encodeURIComponent(id)}/reject`, { method: 'POST', body: JSON.stringify({ notes }) }),
 };
