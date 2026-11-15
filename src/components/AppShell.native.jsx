@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { usePathname } from 'expo-router';
 import { Tabs } from 'expo-router/js-tabs';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,7 +7,7 @@ import { apiConfigured } from '../services/api';
 import { colors, dateLabel } from '../theme';
 import { styles } from '../styles/appStyles';
 import { Icon } from '../ui/primitives';
-import { SegmentedTabs, Toast } from '../ui/mobilePrimitives';
+import { ScreenRefreshContext, SegmentedTabs, Toast } from '../ui/mobilePrimitives';
 import { MOBILE_MORE, MOBILE_PAY_NAV, MOBILE_TABS } from '../navigation/nav';
 import { useApp } from '../state/AppState';
 
@@ -54,13 +54,37 @@ export function AppShell() {
   </View>;
 }
 
+// Screens that can turn on pull to refresh with usePullToRefresh (src/ui/mobilePrimitives.jsx). Their ScrollView always
+// has a RefreshControl: ScrollView renders a different tree with and without one, so adding or removing it would remount
+// the whole screen and reset its state. Only the control's props change when a handler is set or cleared.
+const PULL_TO_REFRESH_ROUTES = ['manager'];
+
 // keyboardOffset is the header height above the screen, so KeyboardAvoidingView measures from the right place.
 function ScreenFrame({ routeName, keyboardOffset, children }) {
   const pathname = usePathname();
   const { navigate } = useApp();
+  const handler = useRef(null);
+  const [enabled, setEnabled] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  // Stable, so registering never re-renders the screen through the context.
+  const register = useCallback((onRefresh) => { handler.current = onRefresh; setEnabled(Boolean(onRefresh)); }, []);
+  async function refresh() {
+    if (!handler.current) return; // iOS has no `enabled` prop; with no handler the pull just ends.
+    setRefreshing(true);
+    try { await handler.current(); } finally { setRefreshing(false); }
+  }
   return <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={keyboardOffset}>
     {(routeName === 'transfer' || routeName === 'payments') && <SegmentedTabs options={MOBILE_PAY_NAV} value={pathname} onChange={navigate} />}
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.nativeContent} keyboardShouldPersistTaps="handled">{children}</ScrollView>
+    <ScrollView
+      style={{ flex: 1 }}
+      contentContainerStyle={styles.nativeContent}
+      keyboardShouldPersistTaps="handled"
+      refreshControl={PULL_TO_REFRESH_ROUTES.includes(routeName)
+        ? <RefreshControl refreshing={refreshing} onRefresh={refresh} enabled={enabled} tintColor={enabled ? colors.blue : 'transparent'} colors={[colors.blue]} />
+        : undefined}
+    >
+      <ScreenRefreshContext.Provider value={register}>{children}</ScreenRefreshContext.Provider>
+    </ScrollView>
   </KeyboardAvoidingView>;
 }
 

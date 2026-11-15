@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, LayoutAnimation, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -93,6 +93,23 @@ export function DateField({ label, value, onChange, minimumDate, maximumDate, pl
       <DateTimePicker value={draft} mode="date" display="inline" minimumDate={minimumDate} maximumDate={maximumDate} accentColor={colors.blue} themeVariant="light" onValueChange={(_event, date) => setDraft(date)} />
     </BottomSheet>}
   </View>;
+}
+
+// Pull to refresh. Each native screen sits inside the ScrollView that AppShell.native's ScreenFrame renders, so the
+// screen hands its refresh function up through this context. Pass null to turn pull to refresh off. The screen's route
+// must be listed in PULL_TO_REFRESH_ROUTES in AppShell.native.jsx.
+export const ScreenRefreshContext = createContext(null);
+
+export function usePullToRefresh(onRefresh) {
+  const register = useContext(ScreenRefreshContext);
+  const latest = useRef(onRefresh);
+  latest.current = onRefresh;
+  const enabled = Boolean(onRefresh);
+  useEffect(() => {
+    if (!register || !enabled) return undefined;
+    register(() => latest.current?.());
+    return () => register(null);
+  }, [register, enabled]);
 }
 
 // Segmented switch, e.g. Transfer | Bill pay. options is a list of [value, label]; style adjusts the container.

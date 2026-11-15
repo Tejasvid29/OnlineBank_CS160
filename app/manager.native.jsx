@@ -5,17 +5,19 @@ import { styles } from '../src/styles/appStyles';
 import CustomerAuditRow from '../src/components/AuditLog';
 import ReportBuilder from '../src/components/ReportBuilder';
 import { Card, Field, SectionHeading } from '../src/ui/primitives';
-import { SegmentedTabs } from '../src/ui/mobilePrimitives';
+import { SegmentedTabs, usePullToRefresh } from '../src/ui/mobilePrimitives';
+import MobileCheckReview from '../src/components/MobileCheckReview';
 import { useApp } from '../src/state/AppState';
 
-const TABS = [['customers', 'Customers'], ['accounts', 'Accounts'], ['reports', 'Reports']];
+const TABS = [['customers', 'Customers'], ['accounts', 'Accounts'], ['checks', 'Checks'], ['reports', 'Reports']];
 
-// Native manager dashboard: totals, then customers / accounts / reports as tabs. The search field filters the
+// Native manager dashboard: totals, then customers / accounts / checks / reports as tabs. The search field filters the
 // customer and account lists, so it appears in those two tabs. Inactive tabs stay mounted (hidden) so the
-// report filters survive switching tabs.
+// report filters survive switching tabs. Pull to refresh reloads the check list on the Checks tab.
 export default function Manager() {
-  const { isManager, managerSearch, setManagerSearch, managerData } = useApp();
+  const { isManager, managerSearch, setManagerSearch, managerData, refreshCheckReviews } = useApp();
   const [tab, setTab] = useState('customers');
+  usePullToRefresh(isManager && tab === 'checks' ? () => refreshCheckReviews() : null);
 
   if (!isManager) return <SectionHeading title="Access denied" subtitle="This page is available to authorized staff only." />;
 
@@ -48,6 +50,9 @@ export default function Manager() {
         <Text style={styles.rowSub}>{managedAccounts.length} shown</Text>
         {managedAccounts.length ? managedAccounts.map((item, index) => <View style={styles.simpleRow} key={item.id || index}><Text style={styles.rowTitle}>{titleCase(item.account_type)} · {item.account_number || item.id}</Text><Text style={styles.rowSub}>{money(item.balance || 0)} · {titleCase(item.status)}</Text></View>) : <Text style={styles.emptyText}>No matching accounts.</Text>}
       </Card>
+    </View>
+    <View style={tab !== 'checks' && styles.nativeHidden}>
+      <MobileCheckReview />
     </View>
     <View style={tab !== 'reports' && styles.nativeHidden}>
       <Card style={styles.nativeCard}>
