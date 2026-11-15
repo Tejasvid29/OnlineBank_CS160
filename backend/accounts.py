@@ -3,11 +3,12 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from supabase import Client
 
 import audit
 import notifications
+from api_docs import SIGNED_IN, errors
 from audit import record_event
 from auth import get_current_user
 from db import get_supabase
@@ -21,6 +22,8 @@ ACCOUNT_NUMBER_ATTEMPTS = 5
 
 class OpenAccountRequest(BaseModel):
     account_type: Literal["checking", "savings"]
+
+    model_config = ConfigDict(json_schema_extra={"examples": [{"account_type": "savings"}]})
 
 
 def _new_account_number() -> str:
@@ -61,7 +64,7 @@ def _has_pending_activity(db: Client, account_id: str) -> bool:
     return False
 
 
-@router.get("")
+@router.get("", summary="List your accounts", responses=errors(*SIGNED_IN))
 def list_accounts(user: dict = Depends(get_current_user), db: Client = Depends(get_supabase)):
     rows = (
         db.table("accounts")
@@ -74,7 +77,7 @@ def list_accounts(user: dict = Depends(get_current_user), db: Client = Depends(g
     return {"accounts": rows}
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED, summary="Open a checking or savings account", responses=errors(*SIGNED_IN, 500))
 def open_account(
     body: OpenAccountRequest,
     user: dict = Depends(get_current_user),
@@ -106,12 +109,15 @@ def open_account(
     raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Could not open the account.")
 
 
-@router.get("/{account_id}")
+@router.get("/{account_id}", summary="Get one of your accounts", responses=errors(*SIGNED_IN, 404))
 def get_account(account_id: str, user: dict = Depends(get_current_user), db: Client = Depends(get_supabase)):
     return {"account": _get_own_account(db, user["id"], account_id)}
 
 
-@router.post("/{account_id}/close")
+@router.post(
+    "/{account_id}/close", summary="Close one of your accounts",
+    responses=errors(*SIGNED_IN, 404, (409, "Already closed, the balance isn't $0, or something is still pending.")),
+)
 def close_account(account_id: str, user: dict = Depends(get_current_user), db: Client = Depends(get_supabase)):
     account = _get_own_account(db, user["id"], account_id)
     if account["status"] != "activated":

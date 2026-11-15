@@ -1,14 +1,15 @@
 import logging
 import math
 from datetime import datetime, timezone
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
-from pydantic import BaseModel, EmailStr, Field
+from fastapi import APIRouter, Depends, HTTPException, Request, Security, status
+from fastapi.security import HTTPBearer
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from supabase import Client, ClientOptions, create_client
 from supabase_auth.errors import AuthApiError
 
 import audit
+from api_docs import BEARER_DESCRIPTION, SIGNED_IN, errors
 from audit import record_event
 from config import settings
 from db import get_supabase
@@ -31,29 +32,44 @@ class RegisterRequest(BaseModel):
     zip_code: str | None = Field(default=None, pattern=r"^[0-9]{5}$")
     password: str = Field(min_length=8, max_length=72)
 
+    model_config = ConfigDict(json_schema_extra={"examples": [{
+        "first_name": "Ada", "last_name": "Lopez", "email": "ada@example.com", "phone": "555-123-4567",
+        "zip_code": "94105", "password": "correct-horse-1",
+    }]})
+
 
 class UpdateProfileRequest(BaseModel):
     first_name: str | None = Field(default=None, min_length=1, max_length=60)
     last_name: str | None = Field(default=None, min_length=1, max_length=60)
     phone: str | None = Field(default=None, pattern=r"^\+?[0-9 ()\-]{7,20}$")
 
+    model_config = ConfigDict(json_schema_extra={"examples": [{"last_name": "Lopez-Park", "phone": "555-987-6543"}]})
+
 
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1, max_length=72)
 
+    model_config = ConfigDict(json_schema_extra={"examples": [{"email": "ada@example.com", "password": "correct-horse-1"}]})
+
 
 class RefreshRequest(BaseModel):
     refresh_token: str
+
+    model_config = ConfigDict(json_schema_extra={"examples": [{"refresh_token": "v1.MbRcGqS3f1nE"}]})
 
 
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 
+    model_config = ConfigDict(json_schema_extra={"examples": [{"email": "ada@example.com"}]})
+
 
 class ResetPasswordRequest(BaseModel):
-    access_token: str
+    access_token: str = Field(description="The access_token from the reset link.")
     password: str = Field(min_length=8, max_length=72)
+
+    model_config = ConfigDict(json_schema_extra={"examples": [{"access_token": "eyJhbGciOiJIUzI1NiIs...", "password": "new-correct-horse-2"}]})
 
 
 def _profile_out(row: dict) -> dict:
@@ -144,8 +160,13 @@ def _recovery_link(db: Client, email: str) -> str | None:
     return result.properties.action_link
 
 
-def _bearer_token(authorization: Annotated[str | None, Header()] = None) -> str:
-    scheme, _, token = (authorization or "").partition(" ")
+# Declares the Bearer scheme in the OpenAPI document (the Authorize button in /docs, and a lock on every route that
+# needs a token). Its value is ignored: the header is still read and checked exactly as before, below.
+bearer_scheme = HTTPBearer(auto_error=False, scheme_name="BearerAuth", bearerFormat="JWT", description=BEARER_DESCRIPTION)
+
+
+def _bearer_token(request: Request, _documented=Security(bearer_scheme)) -> str:
+    scheme, _, token = (request.headers.get("authorization") or "").partition(" ")
     if scheme.lower() != "bearer" or not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated.")
     return token
@@ -173,8 +194,12 @@ def require_role(*roles: str):
     return checker
 
 
-@router.post("/register", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register", status_code=status.HTTP_201_CREATED, summary="Register as a customer and sign in",
+    responses=errors((400, "Supabase could not create the account."), (409, "An account with this email already exists."), 500),
+)
 def register(body: RegisterRequest, db: Client = Depends(get_supabase)):
+    """Creates an active customer profile and returns a session, the same as `/auth/login`."""
     try:
         created = db.auth.admin.create_user(
             {"email": body.email, "password": body.password, "email_confirm": True}
@@ -205,8 +230,13 @@ def register(body: RegisterRequest, db: Client = Depends(get_supabase)):
     return login(LoginRequest(email=body.email, password=body.password), db)
 
 
-@router.post("/login")
+@router.post(
+    "/login", summary="Sign in",
+    responses=errors((401, "Invalid email or password."), (403, "The profile is missing or inactive."),
+                     (429, "Locked for 5 minutes after 3 failed attempts; Retry-After says how long.")),
+)
 def login(body: LoginRequest, db: Client = Depends(get_supabase)):
+    """Returns `access_token`, `refresh_token`, `expires_in` (seconds) and `profile`."""
     # A throwaway client keeps the user's session off the shared admin client.
     account = _find_login_account(db, body.email)
     if account:
@@ -226,7 +256,7 @@ def login(body: LoginRequest, db: Client = Depends(get_supabase)):
     return _session_out(result.session, _load_profile(db, result.user.id))
 
 
-@router.post("/refresh")
+@router.post("/refresh", summary="Renew a session", responses=errors((401, "The refresh token is invalid or expired."), 403))
 def refresh(body: RefreshRequest, db: Client = Depends(get_supabase)):
     auth_client = create_client(settings.supabase_url, settings.supabase_publishable_key)
     try:
@@ -238,12 +268,12 @@ def refresh(body: RefreshRequest, db: Client = Depends(get_supabase)):
     return _session_out(result.session, _load_profile(db, result.user.id))
 
 
-@router.get("/me")
+@router.get("/me", summary="Get your profile", responses=errors(*SIGNED_IN))
 def me(user: dict = Depends(get_current_user)):
     return {"profile": _profile_out(user)}
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, summary="Sign out", responses=errors((401, "No access token was sent.")))
 def logout(token: str = Depends(_bearer_token), db: Client = Depends(get_supabase)):
     try:
         db.auth.admin.sign_out(token)
@@ -251,8 +281,9 @@ def logout(token: str = Depends(_bearer_token), db: Client = Depends(get_supabas
         pass  # Already invalid; nothing to revoke.
 
 
-@router.post("/forgot-password", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/forgot-password", status_code=status.HTTP_204_NO_CONTENT, summary="Email a password-reset link")
 def forgot_password(body: ForgotPasswordRequest):
+    """Always 204, whether or not the address is registered."""
     # Implicit flow puts the recovery token in the link itself; PKCE would need a code verifier that
     # this throwaway client does not outlive.
     auth_client = create_client(
@@ -269,7 +300,10 @@ def forgot_password(body: ForgotPasswordRequest):
         logger.warning("Password reset request failed: %s (%s)", error.message, error.code)
 
 
-@router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/reset-password", status_code=status.HTTP_204_NO_CONTENT, summary="Set a new password from a reset link",
+    responses=errors((400, "The reset link is invalid or expired, or the password was refused.")),
+)
 def reset_password(body: ResetPasswordRequest, db: Client = Depends(get_supabase)):
     invalid = HTTPException(status.HTTP_400_BAD_REQUEST, "This reset link is invalid or has expired.")
     try:
@@ -287,8 +321,9 @@ def reset_password(body: ResetPasswordRequest, db: Client = Depends(get_supabase
     record_event(db, result.user.id, audit.PASSWORD_RESET)
 
 
-@router.patch("/me")
+@router.patch("/me", summary="Update your name or phone number", responses=errors(*SIGNED_IN))
 def update_profile(body: UpdateProfileRequest, user: dict = Depends(get_current_user), db: Client = Depends(get_supabase)):
+    """Send only the fields to change. Email, role and status can't be changed here."""
     # Only the fields the client sent, and only those that actually differ, are written and logged.
     submitted = {"first_name": body.first_name, "last_name": body.last_name, "phone_number": body.phone}
     changes = {

@@ -11,12 +11,13 @@ from typing import Literal
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import JSONResponse
 from PIL import Image, ImageOps, UnidentifiedImageError
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from supabase import Client
 
 import audit
 import notifications
 from accounts import _get_own_account
+from api_docs import ADMIN, SIGNED_IN, errors
 from audit import record_event
 from auth import get_current_user, require_role
 from config import settings
@@ -99,19 +100,26 @@ def _remove_uploaded(bucket, paths: list[str]) -> None:
             pass
 
 
-@router.get("")
+@router.get("", summary="List your check deposits", responses=errors(*SIGNED_IN))
 def list_deposits(user: dict = Depends(get_current_user), db: Client = Depends(get_supabase)):
     rows = (db.table("check_deposits").select(DEPOSIT_COLUMNS)
             .eq("customer_id", user["id"]).order("created_at", desc=True).limit(50).execute().data)
     return {"deposits": [_out(row) for row in rows]}
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "", status_code=status.HTTP_201_CREATED, summary="Submit a check deposit for review",
+    responses={
+        200: {"description": "This exact check was already submitted and is still pending; that deposit is returned with `already_submitted: true`."},
+        **errors(*SIGNED_IN, 404, (409, "The account is closed, or this check was already submitted with different details."),
+                 (413, "A photo is over 10 MB."), (415, "A photo isn't JPEG or PNG."), 503),
+    },
+)
 def submit_deposit(
-    account_id: uuid.UUID = Form(...),
-    amount: str = Form(...),
-    front_image: UploadFile = File(...),
-    back_image: UploadFile = File(...),
+    account_id: uuid.UUID = Form(..., description="One of your open accounts."),
+    amount: str = Form(..., description="Check amount, up to two decimal places.", examples=["125.50"]),
+    front_image: UploadFile = File(..., description="Front of the check, JPEG or PNG, at least 800×400, under 10 MB."),
+    back_image: UploadFile = File(..., description="Back of the check, signed, same limits."),
     user: dict = Depends(get_current_user),
     db: Client = Depends(get_supabase),
 ):
@@ -185,7 +193,7 @@ def submit_deposit(
 # Manager review. Approval is the only path that credits a check, through review_check_deposit() in
 # sql/check_deposit_review.sql, which locks the deposit so it can be decided (and credited) only once.
 admin_only = require_role("admin")
-review_router = APIRouter(prefix="/manager/check-deposits", tags=["check-deposits"], dependencies=[Depends(admin_only)])
+review_router = APIRouter(prefix="/manager/check-deposits", tags=["check-deposits"], dependencies=[Depends(admin_only)], responses=errors(*ADMIN))
 
 REVIEW_FIELDS = "id, account_id, customer_id, amount, status, transaction_id, created_at, review_notes, reviewed_at, reviewed_by"
 # Two columns reference users (customer_id, reviewed_by), so the customer join names its column.
@@ -208,7 +216,9 @@ REVIEW_ERRORS = {
 
 
 class RejectRequest(BaseModel):
-    notes: str = Field(max_length=500)
+    notes: str = Field(max_length=500, description="Why the check was rejected. The customer sees it.")
+
+    model_config = ConfigDict(json_schema_extra={"examples": [{"notes": "The back of the check isn't signed."}]})
 
     @field_validator("notes")
     @classmethod
@@ -274,12 +284,13 @@ def _decide(db: Client, deposit_id: uuid.UUID, admin: dict, decision: str, notes
     return {"deposit": _review_out(reviewed)}
 
 
-@review_router.get("")
+@review_router.get("", summary="List check deposits for review (admin)")
 def list_for_review(
     status_filter: Literal["pending", "approved", "rejected", "all"] = Query("pending", alias="status"),
     limit: int = Query(100, ge=1, le=500),
     db: Client = Depends(get_supabase),
 ):
+    """Pending checks oldest first (the queue); other statuses newest first."""
     query = db.table("check_deposits").select(REVIEW_COLUMNS)
     if status_filter != "all":
         query = query.eq("status", status_filter)
@@ -288,8 +299,9 @@ def list_for_review(
     return {"deposits": [_review_out(row) for row in rows]}
 
 
-@review_router.get("/{deposit_id}")
+@review_router.get("/{deposit_id}", summary="Get a check deposit with image links (admin)", responses=errors(404))
 def get_for_review(deposit_id: uuid.UUID, db: Client = Depends(get_supabase)):
+    """Image links are signed and expire after `image_url_expires_in` seconds; fetch again for new ones."""
     row = _get_review_row(db, str(deposit_id), f"{REVIEW_COLUMNS}, front_image_path, back_image_path")
     bucket = db.storage.from_(settings.check_deposit_bucket)
     return {"deposit": {
@@ -300,11 +312,17 @@ def get_for_review(deposit_id: uuid.UUID, db: Client = Depends(get_supabase)):
     }}
 
 
-@review_router.post("/{deposit_id}/approve")
+@review_router.post(
+    "/{deposit_id}/approve", summary="Approve a check deposit and credit it (admin)",
+    responses=errors((403, "Not an admin, or this is your own deposit."), 404, (409, "Already reviewed, or the account is closed."), 503),
+)
 def approve_deposit(deposit_id: uuid.UUID, admin: dict = Depends(admin_only), db: Client = Depends(get_supabase)):
     return _decide(db, deposit_id, admin, "approve", None)
 
 
-@review_router.post("/{deposit_id}/reject")
+@review_router.post(
+    "/{deposit_id}/reject", summary="Reject a check deposit (admin)",
+    responses=errors((403, "Not an admin, or this is your own deposit."), 404, (409, "Already reviewed."), 503),
+)
 def reject_deposit(deposit_id: uuid.UUID, body: RejectRequest, admin: dict = Depends(admin_only), db: Client = Depends(get_supabase)):
     return _decide(db, deposit_id, admin, "reject", body.notes)

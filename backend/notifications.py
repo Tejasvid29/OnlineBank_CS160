@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from supabase import Client
 
+from api_docs import SIGNED_IN, errors
 from auth import get_current_user
 from db import get_supabase
 
@@ -70,7 +71,7 @@ def _out(row: dict) -> dict:
     return {**row, "notification_type": row["title"], "read": row.get("read_at") is not None}
 
 
-@router.get("")
+@router.get("", summary="List your notifications, newest first", responses=errors(*SIGNED_IN))
 def list_notifications(
     limit: int = Query(default=50, ge=1, le=200),
     user: dict = Depends(get_current_user),
@@ -83,7 +84,7 @@ def list_notifications(
     return {"notifications": [_out(row) for row in rows]}
 
 
-@router.patch("/{notification_id}/read")
+@router.patch("/{notification_id}/read", summary="Mark a notification read", responses=errors(*SIGNED_IN, 404))
 def mark_read(notification_id: uuid.UUID, user: dict = Depends(get_current_user), db: Client = Depends(get_supabase)):
     # Always filter by user_id: the backend uses the secret key, which bypasses RLS.
     rows = (
@@ -102,7 +103,7 @@ def mark_read(notification_id: uuid.UUID, user: dict = Depends(get_current_user)
     return {"notification": _out(row)}
 
 
-@router.post("/read-all")
+@router.post("/read-all", summary="Mark all your notifications read", responses=errors(*SIGNED_IN))
 def mark_all_read(user: dict = Depends(get_current_user), db: Client = Depends(get_supabase)):
     rows = (
         db.table("notifications").update({"read_at": datetime.now(timezone.utc).isoformat()})

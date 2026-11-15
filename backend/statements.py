@@ -2,10 +2,11 @@ import logging
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from supabase import Client
 
 from accounts import _get_own_account
+from api_docs import SIGNED_IN, errors
 from auth import get_current_user
 from db import get_supabase
 from mailer import send_email
@@ -25,6 +26,8 @@ NUMERIC_FIELDS = ("opening_balance", "closing_balance", "total_deposits", "total
 class GenerateStatementRequest(BaseModel):
     account_id: str
 
+    model_config = ConfigDict(json_schema_extra={"examples": [{"account_id": "6f1c2e9a-0b7d-4c55-9f0e-2a4b8d3c1e70"}]})
+
 
 def _out(row: dict) -> dict:
     return {**row, **{key: float(row[key]) for key in NUMERIC_FIELDS if key in row}}
@@ -35,7 +38,7 @@ def _money(value) -> str:
     return f"-${abs(value):,.2f}" if value < 0 else f"${value:,.2f}"
 
 
-@router.get("")
+@router.get("", summary="List your statements", responses=errors(*SIGNED_IN))
 def list_statements(
     account_id: str | None = None,
     limit: int = Query(default=60, ge=1, le=200),
@@ -49,7 +52,7 @@ def list_statements(
     return {"statements": [_out(row) for row in rows]}
 
 
-@router.get("/{statement_id}")
+@router.get("/{statement_id}", summary="Get a statement with its transactions", responses=errors(*SIGNED_IN, 404))
 def get_statement(statement_id: str, user: dict = Depends(get_current_user), db: Client = Depends(get_supabase)):
     rows = (
         db.table("statements").select(STATEMENT_COLUMNS)
@@ -60,7 +63,7 @@ def get_statement(statement_id: str, user: dict = Depends(get_current_user), db:
     return {"statement": _out(rows[0])}
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED, summary="Generate a month-to-date statement", responses=errors(*SIGNED_IN, 404))
 def generate_statement(body: GenerateStatementRequest, user: dict = Depends(get_current_user), db: Client = Depends(get_supabase)):
     """Month-to-date statement: the first of this month (UTC) through today."""
     _get_own_account(db, user["id"], body.account_id)  # 404s for other people's accounts

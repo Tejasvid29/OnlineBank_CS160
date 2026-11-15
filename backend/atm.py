@@ -2,11 +2,12 @@ from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from supabase import Client
 
 import notifications
 from accounts import _get_own_account
+from api_docs import SIGNED_IN, errors
 from auth import get_current_user
 from db import get_supabase
 from notifications import account_label, money, notify
@@ -25,6 +26,10 @@ class AtmRequest(BaseModel):
     account_id: str
     amount: Money
     atm_name: str = Field(default="ATM", min_length=1, max_length=100)
+
+    model_config = ConfigDict(json_schema_extra={"examples": [
+        {"account_id": "6f1c2e9a-0b7d-4c55-9f0e-2a4b8d3c1e70", "amount": 100, "atm_name": "Chase ATM · 1 Market St"},
+    ]})
 
 
 class AtmWithdrawalRequest(AtmRequest):
@@ -64,11 +69,19 @@ def _post(db: Client, user: dict, body: AtmRequest, amount: Decimal, kind: str, 
     return {"transaction": _out(txn)}
 
 
-@router.post("/withdrawals", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/withdrawals", status_code=status.HTTP_201_CREATED, summary="Withdraw cash at an ATM",
+    responses=errors(*SIGNED_IN, 404, (409, "Insufficient funds, closed or not a checking account, or over the $5,000 daily limit.")),
+)
 def atm_withdraw(body: AtmWithdrawalRequest, user: dict = Depends(get_current_user), db: Client = Depends(get_supabase)):
+    """Checking accounts only. Up to $5,000 at once and $5,000 per account in any 24 hours."""
     return _post(db, user, body, -body.amount, "withdrawal", "ATM withdrawal")
 
 
-@router.post("/deposits", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/deposits", status_code=status.HTTP_201_CREATED, summary="Deposit cash at an ATM",
+    responses=errors(*SIGNED_IN, 404, (409, "The account is closed or not a checking account.")),
+)
 def atm_deposit(body: AtmDepositRequest, user: dict = Depends(get_current_user), db: Client = Depends(get_supabase)):
+    """Checking accounts only. Whole dollars, up to $5,000 at once."""
     return _post(db, user, body, body.amount, "deposit", "ATM deposit")

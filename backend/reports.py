@@ -5,10 +5,11 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Query
 from supabase import Client
 
+from api_docs import ADMIN, errors
 from auth import require_role
 from db import get_supabase
 
-router = APIRouter(prefix="/manager", tags=["manager"], dependencies=[Depends(require_role("admin"))])
+router = APIRouter(prefix="/manager", tags=["manager"], dependencies=[Depends(require_role("admin"))], responses=errors(*ADMIN))
 
 MANAGER_ACCOUNT_COLUMNS = (
     "id, account_number, account_type, balance, status, created_at, closed_at, "
@@ -52,13 +53,13 @@ def _summarize(rows: list[dict]) -> dict:
     }
 
 
-@router.get("/accounts")
+@router.get("/accounts", summary="List all accounts with their owners (admin)")
 def manager_accounts(db: Client = Depends(get_supabase)):
     rows = db.table("accounts").select(MANAGER_ACCOUNT_COLUMNS).execute().data
     return {"accounts": rows}
 
 
-@router.get("/customers/{customer_id}/audit-log")
+@router.get("/customers/{customer_id}/audit-log", summary="Get a customer's audit log (admin)")
 def customer_audit_log(customer_id: str, limit: int = Query(100, ge=1, le=500), db: Client = Depends(get_supabase)):
     rows = (
         db.table("audit_log")
@@ -72,7 +73,7 @@ def customer_audit_log(customer_id: str, limit: int = Query(100, ge=1, le=500), 
     return {"entries": rows}
 
 
-@router.get("/reports/summary")
+@router.get("/reports/summary", summary="Balance summary report (admin)")
 def report_summary(
     group_by: GroupBy = "none",
     zip_code: str | None = Query(default=None, pattern=r"^[0-9]{5}$"),
@@ -84,6 +85,7 @@ def report_summary(
     created_to: date | None = None,
     db: Client = Depends(get_supabase),
 ):
+    """Counts and balance totals for the accounts matching every filter given, optionally grouped."""
     # `users!inner` lets the zip filter on the joined table drop non-matching accounts.
     select = MANAGER_ACCOUNT_COLUMNS.replace("users(", "users!inner(")
     query = db.table("accounts").select(select)
