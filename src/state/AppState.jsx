@@ -283,11 +283,12 @@ export function AppProvider({ children }) {
     finally { setBusy(false); }
   }
 
-  // How much more can be taken out of this account at ATMs today (rolling 24 hours). The server enforces the same limit.
+  // How much more can be taken out of this account at ATMs today (rolling 24 hours). The server enforces the same limit
+  // and, like it (sql/atm.sql), counts only completed withdrawals.
   function atmWithdrawalAllowance(accountId) {
     const since = Date.now() - 24 * 60 * 60 * 1000;
     const used = transactions
-      .filter((item) => item.account_id === accountId && item.amount < 0 && String(item.description).startsWith('ATM withdrawal') && new Date(item.created_at).getTime() > since)
+      .filter((item) => item.account_id === accountId && item.amount < 0 && String(item.status).toLowerCase() === 'completed' && String(item.description).startsWith('ATM withdrawal') && new Date(item.created_at).getTime() > since)
       .reduce((sum, item) => sum - Number(item.amount), 0);
     return Math.max(0, ATM_DAILY_LIMIT - used);
   }
