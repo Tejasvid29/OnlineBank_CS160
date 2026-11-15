@@ -106,7 +106,7 @@ The lock icon in `/docs` marks the routes that need a bearer token: all routes e
 | GET | `/accounts` | List your accounts |
 | POST | `/accounts` | Open a checking or savings account (`{"account_type": "savings"}`; starts at $0) |
 | GET | `/accounts/{account_id}` | Get one of your accounts |
-| POST | `/accounts/{account_id}/close` | Close one of your accounts (needs a $0 balance and nothing pending) |
+| POST | `/accounts/{account_id}/close` | Close one of your accounts (needs a $0 balance, nothing pending and no scheduled bill payments) |
 
 ### transactions
 

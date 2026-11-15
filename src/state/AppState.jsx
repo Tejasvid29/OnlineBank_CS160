@@ -405,6 +405,8 @@ export function AppProvider({ children }) {
   async function closeAccount(account) {
     if (Number(account.balance) !== 0) { setNotice('Transfer the remaining balance before closing this account.'); return; }
     if (transactions.some((item) => item.account_id === account.id && item.status?.toLowerCase() === 'pending')) { setNotice('This account has unresolved transactions.'); return; }
+    // Same rule and message as the server (backend/accounts.py), which also enforces it.
+    if (payments.some((item) => item.account_id === account.id && item.status?.toLowerCase() === 'scheduled')) { setNotice("Cancel this account's scheduled bill payments before closing it."); return; }
     setBusy(true); setNotice('');
     try {
       if (apiConfigured) { await bankingApi.closeAccount(account.id); await loadData(); }

@@ -23,7 +23,7 @@ export default function Accounts() {
     <View style={[styles.accountsGrid, compact && styles.stack]}>{accounts.map((account, index) => <AccountCard key={account.id} account={account} index={index} />)}</View>
     <Card style={styles.infoCard}>
       <Icon name="lock-closed-outline" size={22} />
-      <View style={{ flex: 1 }}><Text style={styles.rowTitle}>Account services</Text><Text style={styles.rowSub}>An account must have a zero balance and no unresolved transactions before it can be closed.</Text></View>
+      <View style={{ flex: 1 }}><Text style={styles.rowTitle}>Account services</Text><Text style={styles.rowSub}>An account must have a zero balance, no unresolved transactions and no scheduled bill payments before it can be closed.</Text></View>
     </Card>
     {accounts.filter(isActivated).map((account) => <View key={`close-${account.id}`} style={styles.accountServiceRow}>
       <Text style={styles.rowSub}>{titleCase(account.account_type)} {account.account_number}</Text>

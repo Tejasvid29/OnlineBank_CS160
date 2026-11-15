@@ -18,6 +18,7 @@ router = APIRouter(prefix="/accounts", tags=["accounts"])
 
 ACCOUNT_COLUMNS = "id, account_number, account_type, balance, status, created_at, closed_at"
 ACCOUNT_NUMBER_ATTEMPTS = 5
+SCHEDULED_PAYMENTS_BLOCK = "Cancel this account's scheduled bill payments before closing it."
 
 
 class OpenAccountRequest(BaseModel):
@@ -62,6 +63,21 @@ def _has_pending_activity(db: Client, account_id: str) -> bool:
         if rows:
             return True
     return False
+
+
+def _has_scheduled_payments(db: Client, account_id: str) -> bool:
+    # Recurring payments still due from this account. Left in place they would fail at their next run, once the
+    # account is closed. Failed, completed and canceled payments don't block closing.
+    rows = (
+        db.table("scheduled_payments")
+        .select("id")
+        .eq("account_id", account_id)
+        .eq("status", "scheduled")
+        .limit(1)
+        .execute()
+        .data
+    )
+    return bool(rows)
 
 
 @router.get("", summary="List your accounts", responses=errors(*SIGNED_IN))
@@ -116,7 +132,7 @@ def get_account(account_id: str, user: dict = Depends(get_current_user), db: Cli
 
 @router.post(
     "/{account_id}/close", summary="Close one of your accounts",
-    responses=errors(*SIGNED_IN, 404, (409, "Already closed, the balance isn't $0, or something is still pending.")),
+    responses=errors(*SIGNED_IN, 404, (409, "Already closed, the balance isn't $0, something is still pending, or bill payments are still scheduled from it.")),
 )
 def close_account(account_id: str, user: dict = Depends(get_current_user), db: Client = Depends(get_supabase)):
     account = _get_own_account(db, user["id"], account_id)
@@ -129,6 +145,8 @@ def close_account(account_id: str, user: dict = Depends(get_current_user), db: C
             status.HTTP_409_CONFLICT,
             "This account has pending deposits or transactions. Wait for them to finish before closing it.",
         )
+    if _has_scheduled_payments(db, account_id):
+        raise HTTPException(status.HTTP_409_CONFLICT, SCHEDULED_PAYMENTS_BLOCK)
 
     rows = (
         db.table("accounts")
