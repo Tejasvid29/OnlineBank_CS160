@@ -1,6 +1,12 @@
--- No self-review for review_check_deposit(). Run after check_deposit_review.sql. Safe to re-run.
+-- Two rules for review_check_deposit(). Run after check_deposit_review.sql. Safe to re-run.
 --
--- A manager can't approve or reject a check they deposited themselves ('own_deposit').
+-- 1. No self-review: a manager can't approve or reject a check they deposited themselves ('own_deposit').
+-- 2. Posting date: an approved check posts when it is approved. Its pending ledger row gets created_at = now()
+--    at the moment the balance is credited. Statements (generate_statement), Activity date filters and reports
+--    all date transactions by created_at, and a statement's closing balance is the current balance minus
+--    everything dated after the period. So the credit must be dated when the balance changed, or an
+--    already-written monthly statement would stop matching the next one. The submission time is kept in
+--    check_deposits.created_at. A rejected check's ledger row keeps its date; failed rows are never counted.
 
 begin;
 
@@ -35,7 +41,7 @@ begin
         values (deposit.account_id, deposit.customer_id, 'deposit', deposit.amount, 'completed', 'Mobile check deposit')
         returning id into deposit.transaction_id;
     else
-      update public.transactions set status = 'completed'
+      update public.transactions set status = 'completed', created_at = now()
         where id = deposit.transaction_id and status = 'pending';
       if not found then raise exception 'transaction_not_pending'; end if;
     end if;

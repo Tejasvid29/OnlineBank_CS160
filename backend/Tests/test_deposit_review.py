@@ -19,6 +19,7 @@ CUSTOMER_ID = "11111111-1111-1111-1111-111111111111"
 ACCOUNT_ID = "33333333-3333-3333-3333-333333333333"
 DEPOSIT_ID = "44444444-4444-4444-4444-444444444444"
 TXN_ID = "55555555-5555-5555-5555-555555555555"
+APPROVED_AT = "2026-11-02T09:00:00+00:00"
 ADMIN = {"id": ADMIN_ID, "role": "admin"}
 CUSTOMER = {"id": CUSTOMER_ID, "role": "customer"}
 
@@ -53,7 +54,8 @@ class Database:
     def __init__(self):
         self.account = {"id": ACCOUNT_ID, "user_id": CUSTOMER_ID, "account_type": "checking",
                         "account_number": "123456789012", "status": "activated", "balance": 100.0}
-        self.transaction = {"id": TXN_ID, "account_id": ACCOUNT_ID, "status": "pending", "amount": 25.5}
+        self.transaction = {"id": TXN_ID, "account_id": ACCOUNT_ID, "status": "pending", "amount": 25.5,
+                            "created_at": "2026-11-01T12:00:00+00:00"}
         self.tables = {
             "check_deposits": [{
                 "id": DEPOSIT_ID, "account_id": ACCOUNT_ID, "customer_id": CUSTOMER_ID, "amount": 25.5,
@@ -93,12 +95,12 @@ class Database:
                 if self.account["status"] != "activated":
                     raise RuntimeError("account_closed")
                 self.account["balance"] += deposit["amount"]
-                self.transaction["status"] = "completed"
+                self.transaction.update(status="completed", created_at=APPROVED_AT)  # posts on the approval date
                 deposit["status"] = "approved"
             else:
                 self.transaction["status"] = "failed"
                 deposit["status"] = "rejected"
-            deposit.update(review_notes=notes, reviewed_by=params["p_reviewer_id"], reviewed_at="2026-11-02T09:00:00+00:00")
+            deposit.update(review_notes=notes, reviewed_by=params["p_reviewer_id"], reviewed_at=APPROVED_AT)
             return SimpleNamespace(data=dict(deposit))
 
         return SimpleNamespace(execute=execute)
@@ -186,6 +188,8 @@ def test_approve_credits_once_and_completes_transaction(admin, db):
     assert response.json()["deposit"]["reviewed_by"] == ADMIN_ID
     assert db.account["balance"] == 125.5
     assert db.transaction["status"] == "completed"
+    assert db.transaction["created_at"] == APPROVED_AT
+    assert db.deposit["created_at"] == "2026-11-01T12:00:00+00:00"
     [event] = db.tables["audit_log"]
     assert event["action"] == "check_deposit_approved" and event["actor_id"] == ADMIN_ID and event["customer_id"] == CUSTOMER_ID
 
@@ -220,6 +224,7 @@ def test_reject_keeps_balance_and_fails_transaction(admin, db):
     assert response.json()["deposit"]["review_notes"] == "Signature missing"
     assert db.account["balance"] == 100.0
     assert db.transaction["status"] == "failed"
+    assert db.transaction["created_at"] == "2026-11-01T12:00:00+00:00"
     assert db.tables["audit_log"][0]["action"] == "check_deposit_rejected"
     assert db.tables["audit_log"][0]["details"]["notes"] == "Signature missing"
     assert admin.post(url(f"/{DEPOSIT_ID}/approve")).status_code == 409

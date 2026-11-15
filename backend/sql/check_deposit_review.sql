@@ -8,7 +8,8 @@
 --
 -- The ledger is otherwise append-only (see transactions.sql). This function is the one place a transaction
 -- changes after insert, and only its status, only from 'pending', only for the row submit_check_deposit
--- created for this deposit. The amount, account and date are never changed.
+-- created for this deposit. The amount and account are never changed.
+-- check_deposit_review_rules.sql replaces this function: no self-review, and approval sets the posting date.
 
 begin;
 
