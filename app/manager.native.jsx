@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View } from 'react-native';
-import { money, titleCase } from '../src/theme';
+import { matchesWords, money, searchWords, titleCase } from '../src/theme';
 import { styles } from '../src/styles/appStyles';
 import CustomerAuditRow from '../src/components/AuditLog';
 import ReportBuilder from '../src/components/ReportBuilder';
@@ -23,11 +23,8 @@ export default function Manager() {
 
   if (!isManager) return <SectionHeading title="Access denied" subtitle="This page is available to authorized staff only." />;
 
-  const words = managerSearch.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const matches = (item) => {
-    const text = Object.values(item).filter((value) => value != null).join(' ').toLowerCase();
-    return words.every((word) => text.includes(word));
-  };
+  const words = searchWords(managerSearch);
+  const matches = (item) => matchesWords(words, Object.values(item));
   const customers = managerData.customers.filter(matches);
   const managedAccounts = managerData.accounts.filter(matches);
   const search = <Field label="Search customers and accounts" value={managerSearch} onChangeText={setManagerSearch} placeholder="Name, customer ID, or account ID" />;

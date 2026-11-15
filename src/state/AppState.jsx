@@ -540,6 +540,8 @@ export function AppProvider({ children }) {
 
   // Loads the check deposits with this status ('pending', 'approved', 'rejected' or 'all') for review (manager only).
   // Throws on failure so openManager can report it once; screens use refreshCheckReviews.
+  // One request per status, not paginated: the server returns up to 100 (pending oldest first, others newest first).
+  // The managers' check search filters this loaded list.
   async function loadCheckReviews(status = checkReview.status) {
     setCheckReview((current) => ({ ...current, status, ...(status !== current.status ? { deposits: [], detail: null } : {}) }));
     if (!apiConfigured) return;

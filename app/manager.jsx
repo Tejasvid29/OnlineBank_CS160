@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Image, Pressable, Text, View } from 'react-native';
-import { colors, money, titleCase } from '../src/theme';
+import { checkSearchValues, colors, matchesWords, money, searchWords, titleCase } from '../src/theme';
 import { apiConfigured } from '../src/services/api';
 import { styles } from '../src/styles/appStyles';
 import CustomerAuditRow from '../src/components/AuditLog';
@@ -67,10 +67,16 @@ function CheckDepositReview() {
   const { checkReviewStatus, checkReviewList, checkReviewDetail, refreshCheckReviews, openCheckReview } = useApp();
   const openId = checkReviewDetail?.id;
   const opened = openId && { ...checkReviewList.find((item) => item.id === openId), ...checkReviewDetail };
+  // Same word-by-word matching as the phone's manager search, over the loaded list.
+  const [search, setSearch] = useState('');
+  const words = searchWords(search);
+  const shown = words.length ? checkReviewList.filter((deposit) => matchesWords(words, checkSearchValues(deposit))) : checkReviewList;
 
   return <>
     <Choice label="Show" value={checkReviewStatus} options={REVIEW_FILTERS} onChange={refreshCheckReviews} />
-    {checkReviewList.length ? checkReviewList.map((deposit) => <View key={deposit.id}>
+    <Field label="Search check deposits" value={search} onChangeText={setSearch} placeholder="Name, email, account number or amount" />
+    {words.length > 0 && <Text style={[styles.rowSub, { marginBottom: 8 }]}>{shown.length} of {checkReviewList.length} shown</Text>}
+    {shown.length ? shown.map((deposit) => <View key={deposit.id}>
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ expanded: deposit.id === openId }}
@@ -85,7 +91,7 @@ function CheckDepositReview() {
         <Status color={STATUS_COLORS[deposit.status] || colors.blue}>{deposit.status}</Status>
       </Pressable>
       {deposit.id === openId && <CheckReviewDetail key={openId} deposit={opened} />}
-    </View>) : <Text style={styles.emptyText}>{checkReviewStatus === 'pending' ? 'No checks are waiting for review.' : `No ${checkReviewStatus === 'all' ? '' : `${checkReviewStatus} `}check deposits.`}</Text>}
+    </View>) : <Text style={styles.emptyText}>{words.length ? 'No check deposits match your search.' : checkReviewStatus === 'pending' ? 'No checks are waiting for review.' : `No ${checkReviewStatus === 'all' ? '' : `${checkReviewStatus} `}check deposits.`}</Text>}
     <LinkButton onPress={() => refreshCheckReviews()} icon="refresh">Refresh</LinkButton>
   </>;
 }

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Alert, Image, Modal, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { apiConfigured } from '../services/api';
-import { colors, dateLabel, money, titleCase } from '../theme';
+import { checkSearchValues, colors, dateLabel, matchesWords, money, searchWords, titleCase } from '../theme';
 import { styles } from '../styles/appStyles';
 import { Action, Card, Field, Icon, LinkButton, Notice, Status, Text } from '../ui/primitives';
 import { TEXT_CAP, useTextScale } from '../ui/textScale';
@@ -140,13 +140,18 @@ export default function MobileCheckReview() {
   const openId = checkReviewDetail?.id;
   const opened = openId ? { ...checkReviewList.find((item) => item.id === openId), ...checkReviewDetail } : null;
   const { large } = useTextScale();
-  const empty = checkReviewStatus === 'pending' ? 'No checks are waiting for review.' : `No ${checkReviewStatus === 'all' ? '' : `${checkReviewStatus} `}check deposits.`;
+  // Searches the loaded list (up to 100 checks for the chosen status); see the note in AppState's loadCheckReviews.
+  const [search, setSearch] = useState('');
+  const words = searchWords(search);
+  const shown = words.length ? checkReviewList.filter((deposit) => matchesWords(words, checkSearchValues(deposit))) : checkReviewList;
+  const empty = words.length ? 'No checks match your search.' : checkReviewStatus === 'pending' ? 'No checks are waiting for review.' : `No ${checkReviewStatus === 'all' ? '' : `${checkReviewStatus} `}check deposits.`;
 
   return <>
     <Select label="Show" value={checkReviewStatus} options={FILTERS} onChange={refreshCheckReviews} />
-    <Text style={styles.nativeCount}>{checkReviewList.length} {checkReviewList.length === 1 ? 'check' : 'checks'} · Pull down to refresh</Text>
+    <Field label="Search checks" value={search} onChangeText={setSearch} placeholder="Name, email, account number or amount" />
+    <Text style={styles.nativeCount}>{words.length ? `${shown.length} of ${checkReviewList.length}` : checkReviewList.length} {checkReviewList.length === 1 ? 'check' : 'checks'} · Pull down to refresh</Text>
     <Card style={styles.nativeListCard}>
-      {checkReviewList.length ? checkReviewList.map((deposit) => <Pressable
+      {shown.length ? shown.map((deposit) => <Pressable
         key={deposit.id}
         accessibilityRole="button"
         accessibilityLabel={`${customerName(deposit)}, ${money(deposit.amount)}, ${accountLabel(deposit)}, submitted ${dateLabel(deposit.created_at)}, ${deposit.status}`}
