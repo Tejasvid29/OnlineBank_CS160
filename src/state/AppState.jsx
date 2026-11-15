@@ -19,7 +19,8 @@ const initialProfileDraft = profileDraftFrom(apiConfigured ? {} : demoProfile);
 const initialManagerData = apiConfigured ? { customers: [], accounts: [], reports: [] } : demoManagerData;
 const emptyAuditLog = { customerId: null, entries: [] };
 // Manager check review: the list for the chosen status, and the deposit opened for review (with signed image URLs).
-const emptyCheckReview = { status: 'pending', deposits: [], detail: null };
+// pending: how many checks await review, from the last pending or all list (null until one loads).
+const emptyCheckReview = { status: 'pending', deposits: [], detail: null, pending: null };
 const SESSION_EXPIRED = 'Your session has expired. Please sign in again.';
 const unwrap = (value, key) => Array.isArray(value) ? value : value?.[key] || [];
 const validEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
@@ -537,9 +538,13 @@ export function AppProvider({ children }) {
   async function openManager() {
     if (!isManager) return;
     navigate('/manager');
-    if (apiConfigured) {
-      try { await Promise.all([loadManagerData(), loadCheckReviews()]); } catch (error) { fail(error); }
-    }
+    await refreshManager();
+  }
+
+  // Reloads customers, accounts and the check list shown (the web dashboard's Refresh button).
+  async function refreshManager() {
+    if (!apiConfigured) return;
+    try { await Promise.all([loadManagerData(), loadCheckReviews()]); } catch (error) { fail(error); }
   }
 
   // Demo: the review queue is the demo deposits from submitDeposit, shaped like the backend's review rows.
@@ -558,6 +563,7 @@ export function AppProvider({ children }) {
     .sort(byDate(checkReview.status !== 'pending')).map(demoReviewRow);
   const demoDetail = !apiConfigured && checkReview.detail && checkDeposits.find((item) => item.id === checkReview.detail.id);
   const checkReviewDetail = apiConfigured ? checkReview.detail : demoDetail ? demoReviewRow(demoDetail) : null;
+  const checkPendingCount = apiConfigured ? checkReview.pending : checkDeposits.filter((item) => item.status === 'pending').length;
 
   // Loads the check deposits with this status ('pending', 'approved', 'rejected' or 'all') for review (manager only).
   // Throws on failure so openManager can report it once; screens use refreshCheckReviews.
@@ -567,7 +573,13 @@ export function AppProvider({ children }) {
     setCheckReview((current) => ({ ...current, status, ...(status !== current.status ? { deposits: [], detail: null } : {}) }));
     if (!apiConfigured) return;
     const result = await bankingApi.managerCheckDeposits(status);
-    setCheckReview((current) => current.status === status ? { ...current, deposits: unwrap(result, 'deposits') } : current);
+    const deposits = unwrap(result, 'deposits');
+    const pending = status === 'pending' ? deposits.length : status === 'all' ? deposits.filter((item) => item.status === 'pending').length : null;
+    setCheckReview((current) => ({
+      ...current,
+      ...(current.status === status ? { deposits } : {}),
+      ...(pending === null ? {} : { pending }),
+    }));
   }
 
   async function refreshCheckReviews(status) {
@@ -651,7 +663,7 @@ export function AppProvider({ children }) {
     navigate, refreshData, signIn, verifyMfa, resetPassword, signOut, submitTransfer, submitPayment, cancelPayment, createAccount,
     closeAccount, findAtms, findAtmsNear, atmTransaction, atmWithdrawalAllowance, depositError, submitDeposit, saveProfile, markRead, markAllRead, openManager,
     reportResult, runReport, auditLog, loadAuditLog,
-    checkReviewStatus: checkReview.status, checkReviewList, checkReviewDetail, refreshCheckReviews, openCheckReview, reviewCheckDeposit,
+    checkReviewStatus: checkReview.status, checkReviewList, checkReviewDetail, checkPendingCount, refreshCheckReviews, openCheckReview, reviewCheckDeposit, refreshManager,
     largerText, setLargerText,
   };
 

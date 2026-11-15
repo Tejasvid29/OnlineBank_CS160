@@ -27,6 +27,16 @@ function describe({ action, details = {} }) {
   }
 }
 
+// One customer's audit entries, newest first. Also used by the web dashboard's customer details.
+export function AuditEntries({ entries }) {
+  return entries.length
+    ? entries.map((entry) => <View key={entry.id}>
+      <Text style={styles.rowTitle}>{describe(entry)}</Text>
+      <Text style={styles.rowSub}>{new Date(entry.created_at).toLocaleString()}</Text>
+    </View>)
+    : <Text style={styles.emptyText}>No audit entries.</Text>;
+}
+
 // A customer row that expands to show that customer's audit trail (manager only).
 export default function CustomerAuditRow({ customer }) {
   const { auditLog, loadAuditLog } = useApp();
@@ -42,11 +52,6 @@ export default function CustomerAuditRow({ customer }) {
       <Text style={styles.rowSub}>{customer.id}</Text>
       <Text style={[styles.linkText, styles.linkButton]}>{open ? 'Hide audit log' : 'View audit log'}</Text>
     </Pressable>
-    {open ? (auditLog.entries.length
-      ? auditLog.entries.map((entry) => <View key={entry.id}>
-        <Text style={styles.rowTitle}>{describe(entry)}</Text>
-        <Text style={styles.rowSub}>{new Date(entry.created_at).toLocaleString()}</Text>
-      </View>)
-      : <Text style={styles.emptyText}>No audit entries.</Text>) : null}
+    {open ? <AuditEntries entries={auditLog.entries} /> : null}
   </View>;
 }

@@ -38,3 +38,12 @@ export const checkSearchValues = (deposit) => [
   deposit.customer?.first_name, deposit.customer?.last_name, deposit.customer?.email, deposit.account?.account_number,
   money(deposit.amount), String(deposit.amount), Number(deposit.amount).toFixed(2),
 ];
+
+// Manager customer and account search (web dashboard): the values shown in each row, never field names.
+export const customerSearchValues = (customer) => [
+  customer.first_name, customer.last_name, customer.email, customer.zip_code, customer.id, customer.role, customer.status,
+];
+export const accountSearchValues = (account) => [
+  account.account_number, account.account_type, account.status, account.id, money(account.balance || 0), String(account.balance ?? ''),
+  account.users?.first_name, account.users?.last_name, account.users?.zip_code,
+];
