@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { colors, dateLabel, money, titleCase } from '../src/theme';
 import { styles } from '../src/styles/appStyles';
 import { apiConfigured, bankingApi } from '../src/services/api';
-import { Action, Card, Divider, Icon, LinkButton, Notice, SectionHeading } from '../src/ui/primitives';
+import { Action, Card, Divider, Icon, LinkButton, Notice, SectionHeading, Text } from '../src/ui/primitives';
+import { useTextScale } from '../src/ui/textScale';
 import { Select } from '../src/ui/mobilePrimitives';
 import { useApp } from '../src/state/AppState';
 
@@ -17,6 +18,7 @@ export default function Statements() {
   const [open, setOpen] = useState(null);
   const [notice, setNotice] = useState({ text: '', kind: 'error' });
   const [busy, setBusy] = useState(false);
+  const { large } = useTextScale();
 
   const selected = accountId || accountOptions[0]?.value || '';
   const account = accounts.find((item) => item.id === selected);
@@ -58,20 +60,21 @@ export default function Statements() {
 
   if (open) return <>
     <SectionHeading title="Statement" subtitle={`${titleCase(account?.account_type)} ${account?.account_number}`} />
-    <LinkButton onPress={() => setOpen(null)} icon="arrow-back-outline">Back to statements</LinkButton>
+    <View style={styles.nativeBackLink}><LinkButton onPress={() => setOpen(null)} icon="arrow-back-outline">Back to statements</LinkButton></View>
     <Notice text={notice.text} kind={notice.kind} />
-    <Card>
+    <Card style={styles.nativeCard}>
       <Text style={styles.rowSub}>{periodLabel(open)}</Text>
       <Divider />
       {[['Opening balance', open.opening_balance], ['Deposits', open.total_deposits], ['Withdrawals', -open.total_withdrawals], ['Closing balance', open.closing_balance]].map(([label, value]) =>
-        <View key={label} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}><Text style={styles.rowSub}>{label}</Text><Text style={styles.rowTitle}>{money(value)}</Text></View>)}
+        <View key={label} style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', columnGap: 10, paddingVertical: 4 }}><Text style={styles.rowSub}>{label}</Text><Text style={styles.rowTitle}>{money(value)}</Text></View>)}
     </Card>
     <Text style={styles.nativeCount}>{open.transaction_count} {open.transaction_count === 1 ? 'transaction' : 'transactions'}</Text>
     <Card style={styles.nativeListCard}>
       {(open.transactions || []).length ? open.transactions.map((line, index) => <View key={`${line.date}-${index}`} style={styles.simpleRow}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 10 }}>
-          <View style={{ flex: 1 }}><Text style={styles.rowTitle}>{line.description}</Text><Text style={styles.rowSub}>{dateLabel(line.date)}</Text></View>
-          <View style={{ alignItems: 'flex-end' }}><Text style={styles.transactionAmount}>{money(line.amount)}</Text><Text style={styles.rowSub}>{money(line.balance)}</Text></View>
+        {/* Large text: amount and running balance go under the description instead of beside it. */}
+        <View style={{ flexDirection: large ? 'column' : 'row', justifyContent: 'space-between', gap: large ? 0 : 10 }}>
+          <View style={!large && { flex: 1 }}><Text style={styles.rowTitle}>{line.description}</Text><Text style={styles.rowSub}>{dateLabel(line.date)}</Text></View>
+          <View style={{ alignItems: large ? 'flex-start' : 'flex-end' }}><Text style={[styles.transactionAmount, large && styles.nativeAmountBelow]}>{money(line.amount)}</Text><Text style={styles.rowSub}>{large ? `Balance ${money(line.balance)}` : money(line.balance)}</Text></View>
         </View>
       </View>) : <Text style={styles.emptyText}>No transactions this period.</Text>}
     </Card>
@@ -81,7 +84,7 @@ export default function Statements() {
     <SectionHeading title="Statements" subtitle="Generate one for this month so far. A full statement is also created and emailed at the end of every month." />
     <Notice text={notice.text} kind={notice.kind} />
     <Select label="Account" value={selected} options={accountOptions} onChange={setAccountId} />
-    <Action onPress={generate} disabled={busy} icon="document-text-outline">{busy ? 'Generating…' : 'Generate statement up to today'}</Action>
+    <Action onPress={generate} disabled={busy} icon="document-text-outline" style={[styles.nativeFullAction, { marginBottom: 16 }]}>{busy ? 'Generating…' : 'Generate statement up to today'}</Action>
     <Text style={styles.nativeCount}>{list.length} saved {list.length === 1 ? 'statement' : 'statements'}</Text>
     <Card style={styles.nativeListCard}>
       {list.length ? list.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => view(item.id)} style={styles.paymentRow}>
@@ -89,8 +92,9 @@ export default function Statements() {
         <View style={{ flex: 1 }}>
           <Text style={styles.rowTitle}>{item.kind === 'monthly' ? 'Monthly statement' : 'Month to date'}</Text>
           <Text style={styles.rowSub}>{periodLabel(item)}</Text>
+          {large && <Text style={[styles.transactionAmount, styles.nativeAmountBelow]}>{money(item.closing_balance)}</Text>}
         </View>
-        <Text style={styles.transactionAmount}>{money(item.closing_balance)}</Text>
+        {!large && <Text style={styles.transactionAmount}>{money(item.closing_balance)}</Text>}
       </Pressable>) : <Text style={styles.emptyText}>No statements yet. Generate one above.</Text>}
     </Card>
   </>;

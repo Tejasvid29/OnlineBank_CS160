@@ -1,14 +1,15 @@
 import logging
 import math
 from datetime import datetime, timezone
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
-from pydantic import BaseModel, EmailStr, Field
+from fastapi import APIRouter, Depends, HTTPException, Request, Security, status
+from fastapi.security import HTTPBearer
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from supabase import Client, ClientOptions, create_client
 from supabase_auth.errors import AuthApiError
 
 import audit
+from api_docs import BEARER_DESCRIPTION, SIGNED_IN, errors
 from audit import record_event
 from config import settings
 from db import get_supabase
@@ -17,7 +18,12 @@ from mailer import send_email
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-PROFILE_COLUMNS = "id, first_name, last_name, email, phone_number, zip_code, role, status, created_at"
+PROFILE_COLUMNS = (
+    "id, first_name, last_name, email, phone_number, address_line1, address_line2, city, state, zip_code, role, status, created_at"
+)
+# Mailing address columns. zip_code doubles as the postal code (registration collects it on its own).
+ADDRESS_COLUMNS = ("address_line1", "address_line2", "city", "state", "zip_code")
+INCOMPLETE_ADDRESS = "Enter the street address, city, state and ZIP code, or clear the address."
 INVALID_LOGIN = "Invalid email or password."
 MAX_FAILED_LOGINS = 3
 LOCKOUT_SECONDS = 5 * 60
@@ -31,29 +37,53 @@ class RegisterRequest(BaseModel):
     zip_code: str | None = Field(default=None, pattern=r"^[0-9]{5}$")
     password: str = Field(min_length=8, max_length=72)
 
+    model_config = ConfigDict(json_schema_extra={"examples": [{
+        "first_name": "Ada", "last_name": "Lopez", "email": "ada@example.com", "phone": "555-123-4567",
+        "zip_code": "94105", "password": "correct-horse-1",
+    }]})
+
 
 class UpdateProfileRequest(BaseModel):
     first_name: str | None = Field(default=None, min_length=1, max_length=60)
     last_name: str | None = Field(default=None, min_length=1, max_length=60)
     phone: str | None = Field(default=None, pattern=r"^\+?[0-9 ()\-]{7,20}$")
+    # Mailing address. Send "" or null to clear a field. Saved only if the result is complete or empty (see _address_error).
+    address_line1: str | None = Field(default=None, max_length=100, description="Street address.")
+    address_line2: str | None = Field(default=None, max_length=100, description="Apartment, suite or unit (optional).")
+    city: str | None = Field(default=None, max_length=60)
+    state: str | None = Field(default=None, pattern=r"^\s*([A-Za-z]{2})?\s*$", description="Two-letter state code, e.g. CA.")
+    zip_code: str | None = Field(default=None, pattern=r"^\s*([0-9]{5})?\s*$", description="5-digit ZIP code.")
+
+    model_config = ConfigDict(json_schema_extra={"examples": [
+        {"last_name": "Lopez-Park", "phone": "555-987-6543"},
+        {"address_line1": "1 Washington Sq", "address_line2": "Apt 4", "city": "San Jose", "state": "CA", "zip_code": "95192"},
+    ]})
 
 
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1, max_length=72)
 
+    model_config = ConfigDict(json_schema_extra={"examples": [{"email": "ada@example.com", "password": "correct-horse-1"}]})
+
 
 class RefreshRequest(BaseModel):
     refresh_token: str
+
+    model_config = ConfigDict(json_schema_extra={"examples": [{"refresh_token": "v1.MbRcGqS3f1nE"}]})
 
 
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 
+    model_config = ConfigDict(json_schema_extra={"examples": [{"email": "ada@example.com"}]})
+
 
 class ResetPasswordRequest(BaseModel):
-    access_token: str
+    access_token: str = Field(description="The access_token from the reset link.")
     password: str = Field(min_length=8, max_length=72)
+
+    model_config = ConfigDict(json_schema_extra={"examples": [{"access_token": "eyJhbGciOiJIUzI1NiIs...", "password": "new-correct-horse-2"}]})
 
 
 def _profile_out(row: dict) -> dict:
@@ -68,6 +98,25 @@ def _load_profile(db: Client, user_id: str) -> dict:
     if rows[0]["status"] != "active":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "This account is inactive.")
     return rows[0]
+
+
+def _clean(column: str, value):
+    """Trim text; optional address fields store blanks as null; state is uppercase."""
+    if not isinstance(value, str):
+        return value
+    value = value.strip()
+    if column in ADDRESS_COLUMNS and not value:
+        return None
+    return value.upper() if column == "state" else value
+
+
+def _address_error(profile: dict) -> str | None:
+    """An address must be complete (street, city, state, ZIP) or empty. A ZIP code alone is allowed."""
+    street_city_state = [profile.get(column) for column in ("address_line1", "address_line2", "city", "state")]
+    if not any(street_city_state):
+        return None
+    required = ("address_line1", "city", "state", "zip_code")
+    return None if all(profile.get(column) for column in required) else INCOMPLETE_ADDRESS
 
 
 def _session_out(session, profile: dict) -> dict:
@@ -144,8 +193,13 @@ def _recovery_link(db: Client, email: str) -> str | None:
     return result.properties.action_link
 
 
-def _bearer_token(authorization: Annotated[str | None, Header()] = None) -> str:
-    scheme, _, token = (authorization or "").partition(" ")
+# Declares the Bearer scheme in the OpenAPI document (the Authorize button in /docs, and a lock on every route that
+# needs a token). Its value is ignored: the header is still read and checked exactly as before, below.
+bearer_scheme = HTTPBearer(auto_error=False, scheme_name="BearerAuth", bearerFormat="JWT", description=BEARER_DESCRIPTION)
+
+
+def _bearer_token(request: Request, _documented=Security(bearer_scheme)) -> str:
+    scheme, _, token = (request.headers.get("authorization") or "").partition(" ")
     if scheme.lower() != "bearer" or not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated.")
     return token
@@ -173,8 +227,12 @@ def require_role(*roles: str):
     return checker
 
 
-@router.post("/register", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register", status_code=status.HTTP_201_CREATED, summary="Register as a customer and sign in",
+    responses=errors((400, "Supabase could not create the account."), (409, "An account with this email already exists."), 500),
+)
 def register(body: RegisterRequest, db: Client = Depends(get_supabase)):
+    """Creates an active customer profile and returns a session, the same as `/auth/login`."""
     try:
         created = db.auth.admin.create_user(
             {"email": body.email, "password": body.password, "email_confirm": True}
@@ -205,8 +263,13 @@ def register(body: RegisterRequest, db: Client = Depends(get_supabase)):
     return login(LoginRequest(email=body.email, password=body.password), db)
 
 
-@router.post("/login")
+@router.post(
+    "/login", summary="Sign in",
+    responses=errors((401, "Invalid email or password."), (403, "The profile is missing or inactive."),
+                     (429, "Locked for 5 minutes after 3 failed attempts; Retry-After says how long.")),
+)
 def login(body: LoginRequest, db: Client = Depends(get_supabase)):
+    """Returns `access_token`, `refresh_token`, `expires_in` (seconds) and `profile`."""
     # A throwaway client keeps the user's session off the shared admin client.
     account = _find_login_account(db, body.email)
     if account:
@@ -226,7 +289,7 @@ def login(body: LoginRequest, db: Client = Depends(get_supabase)):
     return _session_out(result.session, _load_profile(db, result.user.id))
 
 
-@router.post("/refresh")
+@router.post("/refresh", summary="Renew a session", responses=errors((401, "The refresh token is invalid or expired."), 403))
 def refresh(body: RefreshRequest, db: Client = Depends(get_supabase)):
     auth_client = create_client(settings.supabase_url, settings.supabase_publishable_key)
     try:
@@ -238,12 +301,12 @@ def refresh(body: RefreshRequest, db: Client = Depends(get_supabase)):
     return _session_out(result.session, _load_profile(db, result.user.id))
 
 
-@router.get("/me")
+@router.get("/me", summary="Get your profile", responses=errors(*SIGNED_IN))
 def me(user: dict = Depends(get_current_user)):
     return {"profile": _profile_out(user)}
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, summary="Sign out", responses=errors((401, "No access token was sent.")))
 def logout(token: str = Depends(_bearer_token), db: Client = Depends(get_supabase)):
     try:
         db.auth.admin.sign_out(token)
@@ -251,8 +314,9 @@ def logout(token: str = Depends(_bearer_token), db: Client = Depends(get_supabas
         pass  # Already invalid; nothing to revoke.
 
 
-@router.post("/forgot-password", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/forgot-password", status_code=status.HTTP_204_NO_CONTENT, summary="Email a password-reset link")
 def forgot_password(body: ForgotPasswordRequest):
+    """Always 204, whether or not the address is registered."""
     # Implicit flow puts the recovery token in the link itself; PKCE would need a code verifier that
     # this throwaway client does not outlive.
     auth_client = create_client(
@@ -269,7 +333,10 @@ def forgot_password(body: ForgotPasswordRequest):
         logger.warning("Password reset request failed: %s (%s)", error.message, error.code)
 
 
-@router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/reset-password", status_code=status.HTTP_204_NO_CONTENT, summary="Set a new password from a reset link",
+    responses=errors((400, "The reset link is invalid or expired, or the password was refused.")),
+)
 def reset_password(body: ResetPasswordRequest, db: Client = Depends(get_supabase)):
     invalid = HTTPException(status.HTTP_400_BAD_REQUEST, "This reset link is invalid or has expired.")
     try:
@@ -287,18 +354,29 @@ def reset_password(body: ResetPasswordRequest, db: Client = Depends(get_supabase
     record_event(db, result.user.id, audit.PASSWORD_RESET)
 
 
-@router.patch("/me")
+@router.patch(
+    "/me", summary="Update your name, phone number or mailing address",
+    responses=errors(*SIGNED_IN, (422, "Invalid field, or an incomplete mailing address.")),
+)
 def update_profile(body: UpdateProfileRequest, user: dict = Depends(get_current_user), db: Client = Depends(get_supabase)):
+    """Send only the fields to change. Email, role and status can't be changed here."""
     # Only the fields the client sent, and only those that actually differ, are written and logged.
-    submitted = {"first_name": body.first_name, "last_name": body.last_name, "phone_number": body.phone}
+    submitted = {
+        "first_name": body.first_name, "last_name": body.last_name, "phone_number": body.phone,
+        **{column: getattr(body, column) for column in ADDRESS_COLUMNS},
+    }
     changes = {
-        column: value.strip() if isinstance(value, str) else value
+        column: _clean(column, value)
         for column, value in submitted.items()
         if (column if column != "phone_number" else "phone") in body.model_fields_set
     }
     changes = {column: value for column, value in changes.items() if user.get(column) != value}
     if not changes:
         return {"profile": _profile_out(user)}
+    # Checked only when the address changes, so an old partial address never blocks a name or phone update.
+    error = _address_error({**user, **changes}) if any(column in ADDRESS_COLUMNS for column in changes) else None
+    if error:
+        raise HTTPException(422, error)
     rows = db.table("users").update(changes).eq("id", user["id"]).execute().data
     record_event(
         db,

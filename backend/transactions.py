@@ -3,12 +3,15 @@ from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from supabase import Client
 
+import notifications
 from accounts import _get_own_account
-from auth import get_current_user
+from api_docs import ADMIN, SIGNED_IN, errors
+from auth import get_current_user, require_role
 from db import get_supabase
+from notifications import account_label, money, notify
 
 router = APIRouter(tags=["transactions"])
 
@@ -34,20 +37,32 @@ class AccountTransactionRequest(BaseModel):
     amount: Money
     description: str = Field(default="", max_length=255)
 
+    model_config = ConfigDict(json_schema_extra={"examples": [{"amount": 250.00, "description": "Teller deposit"}]})
+
 
 class TransferRequest(BaseModel):
     source_account_id: str
     destination_account_id: str
     amount: Money
-    transfer_type: str = "internal"
+    transfer_type: str = Field(default="internal", description="Only `internal` (between your own accounts) is supported.")
     description: str = Field(default="", max_length=255)
+
+    model_config = ConfigDict(json_schema_extra={"examples": [{
+        "source_account_id": "6f1c2e9a-0b7d-4c55-9f0e-2a4b8d3c1e70", "destination_account_id": "a2d4f6b8-1c3e-4a5b-8d7f-9e0c1b2a3d4e",
+        "amount": 50.00, "description": "Savings",
+    }]})
 
 
 class SendMoneyRequest(BaseModel):
     source_account_id: str
-    recipient_account_number: str = Field(pattern=r"^[0-9]{12}$")
+    recipient_account_number: str = Field(pattern=r"^[0-9]{12}$", description="The other customer's 12-digit account number.")
     amount: Money
     description: str = Field(default="", max_length=255)
+
+    model_config = ConfigDict(json_schema_extra={"examples": [{
+        "source_account_id": "6f1c2e9a-0b7d-4c55-9f0e-2a4b8d3c1e70", "recipient_account_number": "555566667777",
+        "amount": 25.00, "description": "Dinner",
+    }]})
 
 
 def _out(row: dict) -> dict:
@@ -70,7 +85,7 @@ def _rpc(db: Client, fn: str, params: dict):
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "The transaction could not be completed.")
 
 
-@router.get("/accounts/{account_id}/transactions")
+@router.get("/accounts/{account_id}/transactions", summary="List an account's transactions", responses=errors(*SIGNED_IN, 404))
 def list_transactions(
     account_id: str,
     transaction_type: str | None = Query(default=None, pattern="^(deposit|withdrawal|transfer)$"),
@@ -99,26 +114,65 @@ def list_transactions(
 
 
 def _post(db: Client, user: dict, account_id: str, amount: Decimal, kind: str, description: str):
-    _get_own_account(db, user["id"], account_id)
+    account = _get_own_account(db, user["id"], account_id)
     txn = _rpc(db, "post_account_transaction", {
         "p_user_id": user["id"], "p_account_id": account_id, "p_amount": str(amount),
         "p_type": kind, "p_description": description or kind.capitalize(),
     })
+    deposit = kind == "deposit"
+    notify(
+        db, user["id"], notifications.DEPOSIT if deposit else notifications.WITHDRAWAL, kind.capitalize(),
+        f"{money(amount)} was {'deposited to' if deposit else 'withdrawn from'} your {account_label(account)}.",
+        transaction_id=txn.get("id"),
+    )
     return {"transaction": _out(txn)}
 
 
-@router.post("/accounts/{account_id}/deposits", status_code=status.HTTP_201_CREATED)
-def deposit(account_id: str, body: AccountTransactionRequest, user: dict = Depends(get_current_user), db: Client = Depends(get_supabase)):
+def _own_accounts(db: Client, user_id: str, ids: list[str]) -> dict:
+    # For notification text only, so a failed lookup just means less detail.
+    try:
+        rows = db.table("accounts").select("id, account_type, account_number").eq("user_id", user_id).in_("id", ids).execute().data
+        return {row["id"]: row for row in rows}
+    except Exception:
+        return {}
+
+
+def _recipient(db: Client, account_number: str) -> dict | None:
+    try:
+        rows = db.table("accounts").select("id, user_id, account_type, account_number").eq("account_number", account_number).limit(1).execute().data
+        return rows[0] if rows else None
+    except Exception:
+        return None
+
+
+# Direct deposits and withdrawals post a completed transaction of any amount, so only admins may use them. Customers
+# move money through the ATM routes (atm.py, with their limits), check deposits (deposits.py, reviewed) and transfers.
+admin_only = require_role("admin")
+
+
+@router.post(
+    "/accounts/{account_id}/deposits", status_code=status.HTTP_201_CREATED, summary="Post a deposit to your own account (admin)",
+    responses=errors(*ADMIN, 404, (409, "This account is closed.")),
+)
+def deposit(account_id: str, body: AccountTransactionRequest, user: dict = Depends(admin_only), db: Client = Depends(get_supabase)):
     return _post(db, user, account_id, body.amount, "deposit", body.description)
 
 
-@router.post("/accounts/{account_id}/withdrawals", status_code=status.HTTP_201_CREATED)
-def withdraw(account_id: str, body: AccountTransactionRequest, user: dict = Depends(get_current_user), db: Client = Depends(get_supabase)):
+@router.post(
+    "/accounts/{account_id}/withdrawals", status_code=status.HTTP_201_CREATED, summary="Post a withdrawal from your own account (admin)",
+    responses=errors(*ADMIN, 404, (409, "Insufficient funds, or the account is closed.")),
+)
+def withdraw(account_id: str, body: AccountTransactionRequest, user: dict = Depends(admin_only), db: Client = Depends(get_supabase)):
     return _post(db, user, account_id, -body.amount, "withdrawal", body.description)
 
 
-@router.post("/transfers", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/transfers", status_code=status.HTTP_201_CREATED, summary="Transfer between your own accounts",
+    responses=errors(*SIGNED_IN, (400, "Not an internal transfer, or the same account twice."), 404,
+                     (409, "Insufficient funds, or an account is closed.")),
+)
 def transfer(body: TransferRequest, user: dict = Depends(get_current_user), db: Client = Depends(get_supabase)):
+    """Both balances change together. Returns the two ledger rows (money out, money in)."""
     if body.transfer_type != "internal":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Only transfers between your own accounts are supported.")
     rows = _rpc(db, "post_transfer", {
@@ -126,15 +180,41 @@ def transfer(body: TransferRequest, user: dict = Depends(get_current_user), db: 
         "p_dest_id": body.destination_account_id, "p_amount": str(body.amount),
         "p_description": body.description,
     })
+    accounts = _own_accounts(db, user["id"], [body.source_account_id, body.destination_account_id])
+    notify(
+        db, user["id"], notifications.TRANSFER, "Transfer completed",
+        f"{money(body.amount)} moved from your {account_label(accounts.get(body.source_account_id))} "
+        f"to your {account_label(accounts.get(body.destination_account_id))}.",
+        transaction_id=rows[0]["id"] if rows else None,
+    )
     return {"transactions": [_out(r) for r in rows]}
 
 
-@router.post("/transfers/send", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/transfers/send", status_code=status.HTTP_201_CREATED, summary="Send money to another customer",
+    responses=errors(*SIGNED_IN, (400, "The account number is one of your own."), (404, "Your account, or no active account with that number."),
+                     (409, "Insufficient funds, or your account is closed.")),
+)
 def send_money(body: SendMoneyRequest, user: dict = Depends(get_current_user), db: Client = Depends(get_supabase)):
+    """Moves money immediately. Returns only your own ledger row; the recipient is notified."""
     # Only the caller's own transaction row is returned; nothing about the recipient is revealed.
     txn = _rpc(db, "post_customer_transfer", {
         "p_user_id": user["id"], "p_source_id": body.source_account_id,
         "p_recipient_number": body.recipient_account_number, "p_amount": str(body.amount),
         "p_description": body.description,
     })
+    source = _own_accounts(db, user["id"], [body.source_account_id]).get(body.source_account_id)
+    ending = body.recipient_account_number[-4:]
+    notify(
+        db, user["id"], notifications.TRANSFER, "Money sent",
+        f"You sent {money(body.amount)} from your {account_label(source)} to account ending {ending}.",
+        transaction_id=txn.get("id"),
+    )
+    # The recipient's own ledger row is written by post_customer_transfer; tell them too, by first name and initial
+    # only (the same wording as their transaction description).
+    recipient = _recipient(db, body.recipient_account_number)
+    if recipient:
+        sender = f"{user.get('first_name') or 'Another'} {(user.get('last_name') or 'customer')[:1]}.".strip()
+        notify(db, recipient["user_id"], notifications.TRANSFER, "Money received",
+               f"You received {money(body.amount)} from {sender} in your {account_label(recipient)}.")
     return {"transaction": _out(txn)}

@@ -13,6 +13,7 @@ USER_ID = "11111111-1111-1111-1111-111111111111"
 ACCOUNT_ID = "33333333-3333-3333-3333-333333333333"
 OTHER_ACCOUNT_ID = "44444444-4444-4444-4444-444444444444"
 PENDING = "This account has pending deposits or transactions. Wait for them to finish before closing it."
+SCHEDULED = "Cancel this account's scheduled bill payments before closing it."
 
 
 class Query:
@@ -42,6 +43,7 @@ class Database:
             }],
             "check_deposits": [],
             "transactions": [],
+            "scheduled_payments": [],
         }
 
     def table(self, name): return Query(self, name)
@@ -104,3 +106,29 @@ def test_close_still_requires_zero_balance(client, db):
     response = close(client)
     assert response.status_code == 409
     assert response.json()["detail"] == "Withdraw or transfer the remaining balance before closing."
+
+
+def test_close_fails_with_scheduled_bill_payment(client, db):
+    db.tables["scheduled_payments"].append({"id": "p1", "account_id": ACCOUNT_ID, "status": "scheduled"})
+    response = close(client)
+    assert response.status_code == 409
+    assert response.json()["detail"] == SCHEDULED
+    assert db.account["status"] == "activated"
+
+
+def test_finished_or_other_accounts_payments_do_not_block_closing(client, db):
+    db.tables["scheduled_payments"] += [
+        {"id": "p1", "account_id": ACCOUNT_ID, "status": "completed"},
+        {"id": "p2", "account_id": ACCOUNT_ID, "status": "canceled"},
+        {"id": "p3", "account_id": ACCOUNT_ID, "status": "failed"},
+        {"id": "p4", "account_id": OTHER_ACCOUNT_ID, "status": "scheduled"},
+    ]
+    response = close(client)
+    assert response.status_code == 200
+    assert db.account["status"] == "deactivated"
+
+
+def test_balance_is_checked_before_scheduled_payments(client, db):
+    db.account["balance"] = 25
+    db.tables["scheduled_payments"].append({"id": "p1", "account_id": ACCOUNT_ID, "status": "scheduled"})
+    assert close(client).json()["detail"] == "Withdraw or transfer the remaining balance before closing."

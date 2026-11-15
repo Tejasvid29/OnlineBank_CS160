@@ -1,7 +1,7 @@
 import React from 'react';
-import { Alert, Text, View } from 'react-native';
+import { Alert, View } from 'react-native';
 import { styles } from '../src/styles/appStyles';
-import { Action, Choice, LinkButton, SectionHeading } from '../src/ui/primitives';
+import { Action, Choice, LinkButton, SectionHeading, Text } from '../src/ui/primitives';
 import { isActivated, titleCase } from '../src/theme';
 import { Collapsible } from '../src/ui/mobilePrimitives';
 import { AccountCard } from '../src/components/AccountCard';
@@ -28,7 +28,7 @@ export default function Accounts() {
       <Action onPress={createAccount} disabled={busy} style={styles.nativeFullAction}>{busy ? 'Working…' : 'Create account'}</Action>
     </Collapsible>
 
-    <Collapsible title="Close an account" subtitle="Needs a $0 balance and no pending transactions">
+    <Collapsible title="Close an account" subtitle="Needs a $0 balance, nothing pending and no scheduled bill payments">
       {open.length ? open.map((account) => <View key={account.id} style={styles.accountServiceRow}>
         <Text style={styles.rowSub}>{titleCase(account.account_type)} {account.account_number}</Text>
         <LinkButton onPress={() => confirmClose(account)}>Close</LinkButton>

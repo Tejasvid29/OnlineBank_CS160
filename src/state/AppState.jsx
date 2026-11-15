@@ -5,14 +5,22 @@ import { apiConfigured, bankingApi, clearSession, hasSession, onSessionExpired, 
 import { buildReport, demoAccounts, demoAtms, demoManagerData, demoNotifications, demoPayments, demoProfile, demoTransactions } from '../data/demo';
 import { isActivated, money, titleCase } from '../theme';
 import { ATM_DAILY_LIMIT, ATM_MAX_DEPOSIT, ATM_MAX_WITHDRAWAL } from '../data/atmLimits';
+import { readLargerText, writeLargerText } from '../services/preferences';
+import { TextScaleContext, largerTextFactor } from '../ui/textScale';
 
 const isWeb = Platform.OS === 'web';
 // Local date as YYYY-MM-DD, computed when needed so an app left open past midnight stays correct.
 const todayString = () => { const now = new Date(); return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
 const emptyRegisterDraft = { first_name: '', last_name: '', phone: '', zip_code: '', confirm: '' };
-const initialProfileDraft = apiConfigured ? { first_name: '', last_name: '', phone: '' } : { first_name: demoProfile.first_name, last_name: demoProfile.last_name, phone: demoProfile.phone };
+// The Profile form: name, phone and mailing address (zip_code is the postal code).
+const ADDRESS_FIELDS = ['address_line1', 'address_line2', 'city', 'state', 'zip_code'];
+const profileDraftFrom = (profile) => Object.fromEntries(['first_name', 'last_name', 'phone', ...ADDRESS_FIELDS].map((key) => [key, profile[key] || '']));
+const initialProfileDraft = profileDraftFrom(apiConfigured ? {} : demoProfile);
 const initialManagerData = apiConfigured ? { customers: [], accounts: [], reports: [] } : demoManagerData;
 const emptyAuditLog = { customerId: null, entries: [] };
+// Manager check review: the list for the chosen status, and the deposit opened for review (with signed image URLs).
+// pending: how many checks await review, from the last pending or all list (null until one loads).
+const emptyCheckReview = { status: 'pending', deposits: [], detail: null, pending: null };
 const SESSION_EXPIRED = 'Your session has expired. Please sign in again.';
 const unwrap = (value, key) => Array.isArray(value) ? value : value?.[key] || [];
 const validEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
@@ -41,8 +49,10 @@ export function useApp() {
 
 export function AppProvider({ children }) {
   const router = useRouter();
-  const { width } = useWindowDimensions();
+  const { width, fontScale } = useWindowDimensions();
   const compact = width < 860;
+  // Profile's Larger text setting (phones only; web uses browser zoom). A device setting, so sign-out keeps it.
+  const [largerText, setLargerTextState] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
   const [authView, setAuthView] = useState('login');
   const [email, setEmail] = useState('');
@@ -71,6 +81,7 @@ export function AppProvider({ children }) {
   const [showManagerReport, setShowManagerReport] = useState(false);
   const [reportResult, setReportResult] = useState(null);
   const [auditLog, setAuditLog] = useState(emptyAuditLog);
+  const [checkReview, setCheckReview] = useState(emptyCheckReview);
   const [transferFrom, setTransferFrom] = useState('checking');
   const [transferTo, setTransferTo] = useState('savings');
   const [transferAmount, setTransferAmount] = useState('');
@@ -114,7 +125,9 @@ export function AppProvider({ children }) {
 
   function fail(error) { setNotice(error?.message || 'Something went wrong. Please try again.'); }
 
-  async function loadData() {
+  // keepSelections (pull to refresh): keep the accounts already chosen on Activity, Transfer, Send and Bill pay, and the
+  // Profile form, as long as those accounts still exist. Otherwise (sign-in, after an action) reset them to the defaults.
+  async function loadData({ keepSelections = false } = {}) {
     if (!apiConfigured) return;
     // A missing ancillary endpoint must not block sign-in.
     const optional = (request) => request.catch(() => []);
@@ -125,18 +138,24 @@ export function AppProvider({ children }) {
     const nextAccounts = unwrap(accountResult, 'accounts');
     const lists = await Promise.all(nextAccounts.map((account) => optional(bankingApi.transactions(account.id))));
     setProfile(nextProfile);
-    setProfileDraft({ first_name: nextProfile.first_name || '', last_name: nextProfile.last_name || '', phone: nextProfile.phone || '' });
+    if (!keepSelections) setProfileDraft(profileDraftFrom(nextProfile));
     setAccounts(nextAccounts);
     const activeAccounts = nextAccounts.filter(isActivated);
-    setSelectedAccount(nextAccounts[0]?.id || 'all');
-    setPaymentAccount(activeAccounts[0]?.id || '');
-    setTransferFrom(activeAccounts[0]?.id || '');
-    setSendFrom(activeAccounts[0]?.id || '');
-    setTransferTo(activeAccounts[1]?.id || '');
+    const keep = (list, fallback, ...allowed) => (current) => keepSelections && (allowed.includes(current) || list.some((item) => item.id === current)) ? current : fallback;
+    setSelectedAccount(keep(nextAccounts, nextAccounts[0]?.id || 'all', 'all'));
+    setPaymentAccount(keep(activeAccounts, activeAccounts[0]?.id || ''));
+    setTransferFrom(keep(activeAccounts, activeAccounts[0]?.id || ''));
+    setSendFrom(keep(activeAccounts, activeAccounts[0]?.id || ''));
+    setTransferTo(keep(activeAccounts, activeAccounts[1]?.id || ''));
     setPayments(unwrap(paymentResult, 'payments'));
     setNotifications(unwrap(notificationResult, 'notifications'));
     if (depositResult !== null) setCheckDeposits(unwrap(depositResult, 'deposits'));
     setTransactions(lists.flatMap((result) => unwrap(result, 'transactions')));
+  }
+
+  // Pull to refresh on the phone's Overview: reload the user's data without resetting other screens.
+  async function refreshData() {
+    try { await loadData({ keepSelections: true }); } catch (error) { fail(error); }
   }
 
   async function signIn() {
@@ -185,6 +204,13 @@ export function AppProvider({ children }) {
     })().finally(() => setRestoring(false));
   }, []);
 
+  useEffect(() => { if (!isWeb) readLargerText().then(setLargerTextState); }, []);
+
+  function setLargerText(enabled) {
+    setLargerTextState(enabled);
+    void writeLargerText(enabled);
+  }
+
   // api() calls this when a 401 survives a refresh attempt.
   useEffect(() => {
     onSessionExpired(() => resetSession(SESSION_EXPIRED));
@@ -232,7 +258,7 @@ export function AppProvider({ children }) {
     setEmail(''); setPassword(''); setMfaCode(''); setRegisterDraft(emptyRegisterDraft);
     setProfile(apiConfigured ? {} : demoProfile); setAccounts(apiConfigured ? [] : demoAccounts); setTransactions(apiConfigured ? [] : demoTransactions);
     setPayments(apiConfigured ? [] : demoPayments); setNotifications(apiConfigured ? [] : demoNotifications); setCheckDeposits([]); setShowNotifications(false);
-    setManagerData(initialManagerData); setManagerSearch(''); setManagerReportFilter('All'); setShowManagerReport(false); setReportResult(null); setAuditLog(emptyAuditLog);
+    setManagerData(initialManagerData); setManagerSearch(''); setManagerReportFilter('All'); setShowManagerReport(false); setReportResult(null); setAuditLog(emptyAuditLog); setCheckReview(emptyCheckReview);
     setSelectedAccount('checking'); setPaymentAccount('checking'); setShowCreateAccount(false); setNewAccountType('checking'); setPendingCloseId(null);
     setTransferFrom('checking'); setTransferTo('savings'); setTransferAmount(''); setTransferNote('');
     setSendFrom(''); setSendRecipient(''); setSendAmount(''); setSendNote('');
@@ -269,11 +295,12 @@ export function AppProvider({ children }) {
     finally { setBusy(false); }
   }
 
-  // How much more can be taken out of this account at ATMs today (rolling 24 hours). The server enforces the same limit.
+  // How much more can be taken out of this account at ATMs today (rolling 24 hours). The server enforces the same limit
+  // and, like it (sql/atm.sql), counts only completed withdrawals.
   function atmWithdrawalAllowance(accountId) {
     const since = Date.now() - 24 * 60 * 60 * 1000;
     const used = transactions
-      .filter((item) => item.account_id === accountId && item.amount < 0 && String(item.description).startsWith('ATM withdrawal') && new Date(item.created_at).getTime() > since)
+      .filter((item) => item.account_id === accountId && item.amount < 0 && String(item.status).toLowerCase() === 'completed' && String(item.description).startsWith('ATM withdrawal') && new Date(item.created_at).getTime() > since)
       .reduce((sum, item) => sum - Number(item.amount), 0);
     return Math.max(0, ATM_DAILY_LIMIT - used);
   }
@@ -382,6 +409,8 @@ export function AppProvider({ children }) {
   async function closeAccount(account) {
     if (Number(account.balance) !== 0) { setNotice('Transfer the remaining balance before closing this account.'); return; }
     if (transactions.some((item) => item.account_id === account.id && item.status?.toLowerCase() === 'pending')) { setNotice('This account has unresolved transactions.'); return; }
+    // Same rule and message as the server (backend/accounts.py), which also enforces it.
+    if (payments.some((item) => item.account_id === account.id && item.status?.toLowerCase() === 'scheduled')) { setNotice("Cancel this account's scheduled bill payments before closing it."); return; }
     setBusy(true); setNotice('');
     try {
       if (apiConfigured) { await bankingApi.closeAccount(account.id); await loadData(); }
@@ -440,7 +469,8 @@ export function AppProvider({ children }) {
       } else {
         // Demo: the deposit waits for review, so balances stay the same until it clears.
         const stamp = new Date().toISOString();
-        deposit = { id: `demo-deposit-${stamp}`, account_id: accountId, amount: value, status: 'pending', created_at: stamp };
+        // Demo only: keep the photo URIs so the manager review can show them.
+        deposit = { id: `demo-deposit-${stamp}`, account_id: accountId, amount: value, status: 'pending', created_at: stamp, front_uri: front.uri, back_uri: back.uri };
         setCheckDeposits((current) => [deposit, ...current]);
         setTransactions((current) => [{ id: `demo-deposit-${stamp}`, account_id: accountId, description: 'Mobile check deposit', transaction_type: 'Deposit', amount: value, created_at: stamp, status: 'Pending' }, ...current]);
         setNotifications((current) => [{ id: `demo-n-${stamp}`, notification_type: 'Deposit', message: `Your check deposit of ${money(value)} was received and is pending review.`, created_at: stamp, read: false }, ...current]);
@@ -451,17 +481,46 @@ export function AppProvider({ children }) {
     finally { setBusy(false); }
   }
 
+  // The same rules as PATCH /auth/me (backend/auth.py), checked here first so the message shows without a round trip.
+  function addressError(draft) {
+    const value = (key) => draft[key].trim();
+    if (value('state') && !/^[A-Za-z]{2}$/.test(value('state'))) return 'Enter the two-letter state code, for example CA.';
+    if (value('zip_code') && !/^[0-9]{5}$/.test(value('zip_code'))) return 'Enter a valid 5-digit ZIP code.';
+    const started = ['address_line1', 'address_line2', 'city', 'state'].some(value);
+    if (started && !['address_line1', 'city', 'state', 'zip_code'].every(value)) return 'Enter the street address, city, state and ZIP code, or clear the address.';
+    return '';
+  }
+
   async function saveProfile() {
     if (!profileDraft.first_name.trim() || !profileDraft.last_name.trim()) { setNotice('Enter your first and last name.'); return; }
+    if (profileDraft.phone.trim() && !/^\+?[0-9 ()-]{7,20}$/.test(profileDraft.phone.trim())) { setNotice('Enter a valid phone number.'); return; }
+    const error = addressError(profileDraft);
+    if (error) { setNotice(error); return; }
     setBusy(true); setNotice('');
     try {
+      const address = Object.fromEntries(ADDRESS_FIELDS.map((key) => [key, profileDraft[key].trim() || null]));
+      if (address.state) address.state = address.state.toUpperCase();
       if (apiConfigured) {
-        const result = await bankingApi.updateProfile({ first_name: profileDraft.first_name, last_name: profileDraft.last_name, phone: profileDraft.phone || null });
+        const result = await bankingApi.updateProfile({ first_name: profileDraft.first_name, last_name: profileDraft.last_name, phone: profileDraft.phone.trim() || null, ...address });
         setProfile(result.profile);
-      } else setProfile((current) => ({ ...current, ...profileDraft }));
+        setProfileDraft(profileDraftFrom(result.profile));
+      } else setProfile((current) => ({ ...current, ...profileDraft, ...address }));
       setNotice('Your profile was updated.', 'success');
     } catch (error) { fail(error); }
     finally { setBusy(false); }
+  }
+
+  // Opening the bell fetches the latest notifications, so ones created since sign-in show up. A failed refresh keeps the list.
+  useEffect(() => {
+    if (!apiConfigured || !signedIn || !showNotifications) return;
+    bankingApi.notifications().then((result) => setNotifications(unwrap(result, 'notifications'))).catch(() => {});
+  }, [showNotifications, signedIn]);
+
+  async function markAllRead() {
+    try {
+      if (apiConfigured) await bankingApi.markAllNotificationsRead();
+      setNotifications((current) => current.map((entry) => ({ ...entry, read: true })));
+    } catch (error) { fail(error); }
   }
 
   async function markRead(item) {
@@ -471,15 +530,100 @@ export function AppProvider({ children }) {
     } catch (error) { fail(error); }
   }
 
+  async function loadManagerData() {
+    const [customers, managerAccounts] = await Promise.all([bankingApi.managerCustomers(), bankingApi.managerAccounts()]);
+    setManagerData({ customers: unwrap(customers, 'customers'), accounts: unwrap(managerAccounts, 'accounts'), reports: [] });
+  }
+
   async function openManager() {
     if (!isManager) return;
     navigate('/manager');
-    if (apiConfigured) {
-      try {
-        const [customers, managerAccounts] = await Promise.all([bankingApi.managerCustomers(), bankingApi.managerAccounts()]);
-        setManagerData({ customers: unwrap(customers, 'customers'), accounts: unwrap(managerAccounts, 'accounts'), reports: [] });
-      } catch (error) { fail(error); }
-    }
+    await refreshManager();
+  }
+
+  // Reloads customers, accounts and the check list shown (the web dashboard's Refresh button).
+  async function refreshManager() {
+    if (!apiConfigured) return;
+    try { await Promise.all([loadManagerData(), loadCheckReviews()]); } catch (error) { fail(error); }
+  }
+
+  // Demo: the review queue is the demo deposits from submitDeposit, shaped like the backend's review rows.
+  function demoReviewRow(deposit) {
+    const account = accounts.find((item) => item.id === deposit.account_id) || {};
+    return {
+      ...deposit,
+      customer: { first_name: profile.first_name, last_name: profile.last_name, email: profile.email },
+      account: { account_type: account.account_type, account_number: account.account_number, status: account.status },
+      front_image_url: deposit.front_uri || null, back_image_url: deposit.back_uri || null,
+    };
+  }
+  const byDate = (newestFirst) => (a, b) => newestFirst ? b.created_at.localeCompare(a.created_at) : a.created_at.localeCompare(b.created_at);
+  const checkReviewList = apiConfigured ? checkReview.deposits : checkDeposits
+    .filter((item) => checkReview.status === 'all' || item.status === checkReview.status)
+    .sort(byDate(checkReview.status !== 'pending')).map(demoReviewRow);
+  const demoDetail = !apiConfigured && checkReview.detail && checkDeposits.find((item) => item.id === checkReview.detail.id);
+  const checkReviewDetail = apiConfigured ? checkReview.detail : demoDetail ? demoReviewRow(demoDetail) : null;
+  const checkPendingCount = apiConfigured ? checkReview.pending : checkDeposits.filter((item) => item.status === 'pending').length;
+
+  // Loads the check deposits with this status ('pending', 'approved', 'rejected' or 'all') for review (manager only).
+  // Throws on failure so openManager can report it once; screens use refreshCheckReviews.
+  // One request per status, not paginated: the server returns up to 100 (pending oldest first, others newest first).
+  // The managers' check search filters this loaded list.
+  async function loadCheckReviews(status = checkReview.status) {
+    setCheckReview((current) => ({ ...current, status, ...(status !== current.status ? { deposits: [], detail: null } : {}) }));
+    if (!apiConfigured) return;
+    const result = await bankingApi.managerCheckDeposits(status);
+    const deposits = unwrap(result, 'deposits');
+    const pending = status === 'pending' ? deposits.length : status === 'all' ? deposits.filter((item) => item.status === 'pending').length : null;
+    setCheckReview((current) => ({
+      ...current,
+      ...(current.status === status ? { deposits } : {}),
+      ...(pending === null ? {} : { pending }),
+    }));
+  }
+
+  async function refreshCheckReviews(status) {
+    setNotice('');
+    try { await loadCheckReviews(status); } catch (error) { fail(error); }
+  }
+
+  // Opens one deposit for review, with fresh signed image URLs; null closes it.
+  async function openCheckReview(id) {
+    setNotice('');
+    setCheckReview((current) => ({ ...current, detail: id ? { id } : null }));
+    if (!apiConfigured || !id) return;
+    try {
+      const result = await bankingApi.managerCheckDeposit(id);
+      setCheckReview((current) => current.detail?.id === id ? { ...current, detail: result.deposit } : current);
+    } catch (error) { fail(error); }
+  }
+
+  // decision is 'approve' or 'reject'. Returns true when the deposit was reviewed.
+  async function reviewCheckDeposit(deposit, decision, notes = '') {
+    const reason = notes.trim();
+    if (decision === 'reject' && !reason) { setNotice('Enter a reason for rejecting this check.'); return false; }
+    setBusy(true); setNotice('');
+    try {
+      if (apiConfigured) {
+        await (decision === 'approve' ? bankingApi.approveCheckDeposit(deposit.id) : bankingApi.rejectCheckDeposit(deposit.id, reason));
+        setCheckReview((current) => ({ ...current, detail: null }));
+        // The decision is saved; a failed refresh only leaves the lists stale.
+        try { await Promise.all([loadManagerData(), loadCheckReviews()]); } catch { /* Refresh pulls them again. */ }
+      } else {
+        const account = accounts.find((item) => item.id === deposit.account_id);
+        if (decision === 'approve' && !isActivated(account || {})) throw new Error("The account for this deposit is closed, so it can't be approved. Reject it instead.");
+        const stamp = new Date().toISOString();
+        const approved = decision === 'approve';
+        setCheckDeposits((current) => current.map((item) => item.id === deposit.id ? { ...item, status: approved ? 'approved' : 'rejected', review_notes: reason || null, reviewed_at: stamp } : item));
+        // Like the backend: an approved check posts on the approval date; a rejected one never touches the balance.
+        setTransactions((current) => current.map((item) => item.id === deposit.id ? { ...item, status: approved ? 'Completed' : 'Failed', ...(approved ? { created_at: stamp } : {}) } : item));
+        if (approved) setAccounts((current) => current.map((item) => item.id === deposit.account_id ? { ...item, balance: item.balance + deposit.amount } : item));
+        setCheckReview((current) => ({ ...current, detail: null }));
+      }
+      setNotice(decision === 'approve' ? `Check deposit of ${money(deposit.amount)} approved and credited.` : `Check deposit of ${money(deposit.amount)} rejected.`, 'success');
+      return true;
+    } catch (error) { fail(error); return false; }
+    finally { setBusy(false); }
   }
 
   // Loads the audit trail for one customer (manager only). Demo mode has no backend, so the trail is empty.
@@ -516,10 +660,14 @@ export function AppProvider({ children }) {
     paymentDate, setPaymentDate, frequency, setFrequency, atmSearch, setAtmSearch, atms, transactionSearch, setTransactionSearch,
     transactionType, setTransactionType, transactionStart, setTransactionStart, transactionEnd, setTransactionEnd, profileDraft,
     setProfileDraft, unread, isManager, total, visibleTransactions, accountOptions,
-    navigate, signIn, verifyMfa, resetPassword, signOut, submitTransfer, submitPayment, cancelPayment, createAccount,
-    closeAccount, findAtms, findAtmsNear, atmTransaction, atmWithdrawalAllowance, depositError, submitDeposit, saveProfile, markRead, openManager,
+    navigate, refreshData, signIn, verifyMfa, resetPassword, signOut, submitTransfer, submitPayment, cancelPayment, createAccount,
+    closeAccount, findAtms, findAtmsNear, atmTransaction, atmWithdrawalAllowance, depositError, submitDeposit, saveProfile, markRead, markAllRead, openManager,
     reportResult, runReport, auditLog, loadAuditLog,
+    checkReviewStatus: checkReview.status, checkReviewList, checkReviewDetail, checkPendingCount, refreshCheckReviews, openCheckReview, reviewCheckDeposit, refreshManager,
+    largerText, setLargerText,
   };
 
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+  return <AppContext.Provider value={value}>
+    <TextScaleContext.Provider value={isWeb ? 1 : largerTextFactor(largerText, fontScale || 1)}>{children}</TextScaleContext.Provider>
+  </AppContext.Provider>;
 }

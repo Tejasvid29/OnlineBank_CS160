@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Platform, Text, View } from 'react-native';
+import { Platform, View } from 'react-native';
 import { money } from '../theme';
 import { styles } from '../styles/appStyles';
-import { Action, Choice, Divider, Field } from '../ui/primitives';
+import { Action, Choice, Divider, Field, Text } from '../ui/primitives';
 import { DateField, fromYmd } from '../ui/mobilePrimitives';
+import { useTextScale } from '../ui/textScale';
 import { useApp } from '../state/AppState';
 
 const options = (pairs) => pairs.map(([value, label]) => ({ value, label }));
@@ -22,19 +23,21 @@ function StatRow({ title, stats }) {
 }
 
 // Shared by the web and native manager screens: filter + group-by form and the resulting summary stats.
-export default function ReportBuilder() {
+// split (wide web screens): filters on the left, results on the right.
+export default function ReportBuilder({ split = false }) {
   const { reportResult, runReport } = useApp();
   const [filters, setFilters] = useState(EMPTY);
+  const { large } = useTextScale();
   const set = (key) => (value) => setFilters((current) => ({ ...current, [key]: value }));
 
-  return <>
+  const form = <>
     <Choice label="Group by" value={filters.group_by} options={GROUP_BY} onChange={set('group_by')} />
     <Choice label="Account type" value={filters.account_type} options={TYPES} onChange={set('account_type')} />
     <Choice label="Account status" value={filters.account_status} options={STATUSES} onChange={set('account_status')} />
     <Field label="ZIP code" value={filters.zip_code} onChangeText={set('zip_code')} placeholder="94105" />
     <Field label="Minimum balance" value={filters.min_balance} onChangeText={set('min_balance')} placeholder="0" />
     <Field label="Maximum balance" value={filters.max_balance} onChangeText={set('max_balance')} placeholder="50000" />
-    {isNative ? <View style={styles.nativeRow2}>
+    {isNative ? <View style={[styles.nativeRow2, large && styles.nativeRow2Large]}>
       <View style={styles.nativeCell}><DateField label="Opened from" value={filters.created_from} onChange={set('created_from')} maximumDate={filters.created_to ? fromYmd(filters.created_to) : new Date()} placeholder="Any" clearable /></View>
       <View style={styles.nativeCell}><DateField label="Opened to" value={filters.created_to} onChange={set('created_to')} minimumDate={filters.created_from ? fromYmd(filters.created_from) : undefined} maximumDate={new Date()} placeholder="Any" clearable /></View>
     </View> : <>
@@ -42,12 +45,18 @@ export default function ReportBuilder() {
       <Field label="Opened to" value={filters.created_to} onChangeText={set('created_to')} placeholder="YYYY-MM-DD" />
     </>}
     <Action variant="secondary" onPress={() => runReport(filters)}>Run report</Action>
-    {reportResult && <View style={styles.reportSummary}>
-      <StatRow title="Overall" stats={reportResult.totals} />
-      {reportResult.group_by !== 'none' && <>
-        <Divider />
-        {reportResult.groups.length ? reportResult.groups.map((group) => <StatRow key={group.group} title={group.group} stats={group} />) : <Text style={styles.emptyText}>No accounts match these filters.</Text>}
-      </>}
-    </View>}
   </>;
+  const results = reportResult && <View style={[styles.reportSummary, split && { marginTop: 0 }]}>
+    <StatRow title="Overall" stats={reportResult.totals} />
+    {reportResult.group_by !== 'none' && <>
+      <Divider />
+      {reportResult.groups.length ? reportResult.groups.map((group) => <StatRow key={group.group} title={group.group} stats={group} />) : <Text style={styles.emptyText}>No accounts match these filters.</Text>}
+    </>}
+  </View>;
+
+  if (!split) return <>{form}{results}</>;
+  return <View style={styles.twoColumns}>
+    <View style={styles.columnCard}>{form}</View>
+    <View style={[styles.columnCard, { flex: 1.3 }]}>{results || <Text style={styles.emptyText}>Choose filters and run a report to see totals here.</Text>}</View>
+  </View>;
 }

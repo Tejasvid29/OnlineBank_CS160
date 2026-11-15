@@ -5,6 +5,7 @@ import time
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from api_docs import SIGNED_IN, errors
 from auth import get_current_user
 from config import settings
 
@@ -115,13 +116,17 @@ def _out(properties: dict, origin: tuple[float, float]) -> dict | None:
     }
 
 
-@router.get("/search")
+@router.get(
+    "/search", summary="Find ATMs near a place or coordinates",
+    responses=errors(*SIGNED_IN, (502, "The map service failed."), (503, "ATM search is not configured on the server.")),
+)
 def search_atms(
-    location: str | None = Query(default=None, min_length=1, max_length=200),
+    location: str | None = Query(default=None, min_length=1, max_length=200, examples=["San Jose, CA"]),
     lat: float | None = Query(default=None, ge=-90, le=90),
     lng: float | None = Query(default=None, ge=-180, le=180),
     _user: dict = Depends(get_current_user),
 ):
+    """Send `location` (a city, ZIP or address) or both `lat` and `lng`. Returns up to 10 ATMs, nearest first."""
     if location and location.strip():
         origin = _geocode(location.strip())
         if origin is None:

@@ -1,8 +1,11 @@
 import React from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
 import { colors, dateLabel, money } from '../src/theme';
+import { apiConfigured } from '../src/services/api';
 import { styles } from '../src/styles/appStyles';
-import { Card, Icon, LinkButton, SectionHeading } from '../src/ui/primitives';
+import { Card, Icon, LinkButton, SectionHeading, Text } from '../src/ui/primitives';
+import { TEXT_CAP, useTextScale } from '../src/ui/textScale';
+import { usePullToRefresh } from '../src/ui/mobilePrimitives';
 import { AccountCard } from '../src/components/AccountCard';
 import { ActivityRows } from '../src/components/ActivityRows';
 import { useApp } from '../src/state/AppState';
@@ -16,26 +19,38 @@ const SHORTCUTS = [
 ];
 
 // Native overview: balance in the hero, shortcuts, compact accounts, and a scrollable recent-activity card.
+// Pull down to reload balances, activity, payments and notifications (API mode; demo data stays as it is).
 export default function Overview() {
-  const { profile, accounts, payments, transactions, total, navigate } = useApp();
-  const recent = [...transactions].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 20);
+  const { profile, accounts, payments, transactions, total, navigate, refreshData } = useApp();
+  usePullToRefresh(apiConfigured ? refreshData : null);
+  const { large } = useTextScale();
+  // At large text sizes a row is several lines tall, so the short scrolling box would show one or two at a time:
+  // show the latest five in full instead, with View all for the rest.
+  const recent = [...transactions].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, large ? 5 : 20);
   const nextPayment = [...payments].sort((a, b) => a.next_payment_date.localeCompare(b.next_payment_date))[0];
 
   return <>
     <View style={styles.nativeHero}>
       <Text style={styles.heroEyebrow}>GOOD TO SEE YOU</Text>
-      <Text style={styles.nativeHeroTitle}>Hi, {profile.first_name || 'there'}</Text>
+      <Text style={styles.nativeHeroTitle} maxFontSizeMultiplier={TEXT_CAP.heading}>Hi, {profile.first_name || 'there'}</Text>
       <Text style={styles.nativeHeroLabel}>Total balance</Text>
-      <Text style={styles.nativeHeroAmount}>{money(total)}</Text>
+      <Text style={styles.nativeHeroAmount} maxFontSizeMultiplier={TEXT_CAP.display} numberOfLines={1} adjustsFontSizeToFit>{money(total)}</Text>
       <Text style={styles.heroSubtitle}>Across {accounts.length} {accounts.length === 1 ? 'account' : 'accounts'}</Text>
     </View>
 
-    <View style={styles.nativeQuickRow}>
+    {/* Five tiles in a row leave no room for large text, so they become a list. */}
+    {large ? <Card style={styles.nativeQuickList}>
+      {SHORTCUTS.map(([label, icon, target]) => <Pressable key={label} accessibilityRole="button" accessibilityLabel={label} onPress={() => navigate(target)} style={({ pressed }) => [styles.nativeQuickItem, pressed && styles.pressed]}>
+        <View style={styles.nativeQuickIcon}><Icon name={icon} size={22} /></View>
+        <Text style={[styles.nativeQuickLabel, { flex: 1 }]}>{label}</Text>
+        <Icon name="chevron-forward" size={18} color={colors.muted} />
+      </Pressable>)}
+    </Card> : <View style={styles.nativeQuickRow}>
       {SHORTCUTS.map(([label, icon, target]) => <Pressable key={label} accessibilityRole="button" accessibilityLabel={label} onPress={() => navigate(target)} style={styles.nativeQuick}>
         <View style={styles.nativeQuickIcon}><Icon name={icon} size={22} /></View>
         <Text style={styles.nativeQuickLabel}>{label}</Text>
       </Pressable>)}
-    </View>
+    </View>}
 
     <SectionHeading title="Accounts" action="See all" onAction={() => navigate('/accounts')} />
     <View style={styles.nativeList}>{accounts.map((account, index) => <AccountCard key={account.id} account={account} index={index} />)}</View>
@@ -53,12 +68,14 @@ export default function Overview() {
 
     <Card style={styles.nativeListCard}>
       <View style={styles.nativeCardHeading}>
-        <Text style={styles.nativeSectionTitle}>Recent activity</Text>
+        <Text style={styles.nativeSectionTitle} maxFontSizeMultiplier={TEXT_CAP.heading}>Recent activity</Text>
         <LinkButton onPress={() => navigate('/activity')} icon="arrow-forward">View all</LinkButton>
       </View>
-      <ScrollView style={styles.nativeRecentList} nestedScrollEnabled showsVerticalScrollIndicator>
-        {recent.length ? <ActivityRows rows={recent} /> : <Text style={styles.emptyText}>No recent activity.</Text>}
-      </ScrollView>
+      {large
+        ? (recent.length ? <ActivityRows rows={recent} /> : <Text style={styles.emptyText}>No recent activity.</Text>)
+        : <ScrollView style={styles.nativeRecentList} nestedScrollEnabled showsVerticalScrollIndicator>
+          {recent.length ? <ActivityRows rows={recent} /> : <Text style={styles.emptyText}>No recent activity.</Text>}
+        </ScrollView>}
     </Card>
   </>;
 }
