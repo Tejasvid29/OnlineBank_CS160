@@ -6,7 +6,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { apiConfigured } from '../services/api';
 import { colors, dateLabel } from '../theme';
 import { styles } from '../styles/appStyles';
-import { Icon } from '../ui/primitives';
+import { Icon, LinkButton } from '../ui/primitives';
 import { ScreenRefreshContext, SegmentedTabs, Toast } from '../ui/mobilePrimitives';
 import { MOBILE_MORE, MOBILE_PAY_NAV, MOBILE_TABS } from '../navigation/nav';
 import { useApp } from '../state/AppState';
@@ -145,17 +145,20 @@ function MoreSheet({ visible, onClose }) {
 }
 
 function NotificationsModal() {
-  const { showNotifications, setShowNotifications, notifications, markRead } = useApp();
+  const { showNotifications, setShowNotifications, notifications, markRead, markAllRead, unread } = useApp();
   const close = () => setShowNotifications(false);
 
   return <Modal visible={showNotifications} animationType="slide" presentationStyle="pageSheet" onRequestClose={close}>
     <SafeAreaView style={styles.nativeModal} edges={['top', 'bottom']}>
       <View style={styles.notificationHeading}>
         <Text style={[styles.cardTitle, { marginBottom: 0 }]}>Notifications</Text>
-        <Pressable accessibilityRole="button" accessibilityLabel="Close notifications" onPress={close} hitSlop={8}><Icon name="close-outline" size={26} color={colors.ink} /></Pressable>
+        <View style={styles.notificationActions}>
+          {unread > 0 && <LinkButton onPress={markAllRead}>Mark all read</LinkButton>}
+          <Pressable accessibilityRole="button" accessibilityLabel="Close notifications" onPress={close} hitSlop={8}><Icon name="close-outline" size={26} color={colors.ink} /></Pressable>
+        </View>
       </View>
       <ScrollView>
-        {notifications.length ? notifications.map((item) => <Pressable key={item.id} onPress={() => markRead(item)} style={[styles.notificationItem, !item.read && { backgroundColor: '#F1F7FD' }]}>
+        {notifications.length ? notifications.map((item) => <Pressable key={item.id} accessibilityRole="button" accessibilityLabel={`${item.read ? '' : 'Unread. '}${item.notification_type}. ${item.message}. ${dateLabel(item.created_at)}`} onPress={() => markRead(item)} style={[styles.notificationItem, !item.read && { backgroundColor: '#F1F7FD' }]}>
           <Text style={styles.rowTitle}>{item.notification_type}</Text>
           <Text style={styles.rowSub}>{item.message}</Text>
           <Text style={styles.notificationDate}>{dateLabel(item.created_at)}</Text>

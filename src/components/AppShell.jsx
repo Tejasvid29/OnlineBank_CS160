@@ -11,7 +11,7 @@ import { useApp } from '../state/AppState';
 export function AppShell({ children }) {
   const pathname = usePathname();
   const {
-    compact, profile, unread, isManager, showNotifications, setShowNotifications, notifications, markRead,
+    compact, profile, unread, isManager, showNotifications, setShowNotifications, notifications, markRead, markAllRead,
     navigate, signOut, openManager,
   } = useApp();
 
@@ -70,10 +70,13 @@ export function AppShell({ children }) {
 
       {showNotifications && <View style={[styles.notificationPanel, compact && styles.notificationPanelMobile]}>
         <View style={styles.notificationHeading}>
-          <Text style={styles.cardTitle}>Notifications</Text>
-          <Pressable accessibilityRole="button" accessibilityLabel="Close notifications" onPress={() => setShowNotifications(false)}><Icon name="close-outline" size={24} color={colors.ink} /></Pressable>
+          <Text style={[styles.cardTitle, { marginBottom: 0 }]}>Notifications</Text>
+          <View style={styles.notificationActions}>
+            {unread > 0 && <LinkButton onPress={markAllRead}>Mark all read</LinkButton>}
+            <Pressable accessibilityRole="button" accessibilityLabel="Close notifications" onPress={() => setShowNotifications(false)}><Icon name="close-outline" size={24} color={colors.ink} /></Pressable>
+          </View>
         </View>
-        {notifications.length ? notifications.map((item) => <Pressable key={item.id} onPress={() => markRead(item)} style={[styles.notificationItem, !item.read && { backgroundColor: '#F1F7FD' }]}>
+        {notifications.length ? notifications.map((item) => <Pressable key={item.id} accessibilityRole="button" accessibilityLabel={`${item.read ? '' : 'Unread. '}${item.notification_type}. ${item.message}. ${dateLabel(item.created_at)}`} onPress={() => markRead(item)} style={[styles.notificationItem, !item.read && { backgroundColor: '#F1F7FD' }]}>
           <Text style={styles.rowTitle}>{item.notification_type}</Text>
           <Text style={styles.rowSub}>{item.message}</Text>
           <Text style={styles.notificationDate}>{dateLabel(item.created_at)}</Text>

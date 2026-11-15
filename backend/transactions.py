@@ -6,9 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from supabase import Client
 
+import notifications
 from accounts import _get_own_account
 from auth import get_current_user
 from db import get_supabase
+from notifications import account_label, money, notify
 
 router = APIRouter(tags=["transactions"])
 
@@ -99,12 +101,35 @@ def list_transactions(
 
 
 def _post(db: Client, user: dict, account_id: str, amount: Decimal, kind: str, description: str):
-    _get_own_account(db, user["id"], account_id)
+    account = _get_own_account(db, user["id"], account_id)
     txn = _rpc(db, "post_account_transaction", {
         "p_user_id": user["id"], "p_account_id": account_id, "p_amount": str(amount),
         "p_type": kind, "p_description": description or kind.capitalize(),
     })
+    deposit = kind == "deposit"
+    notify(
+        db, user["id"], notifications.DEPOSIT if deposit else notifications.WITHDRAWAL, kind.capitalize(),
+        f"{money(amount)} was {'deposited to' if deposit else 'withdrawn from'} your {account_label(account)}.",
+        transaction_id=txn.get("id"),
+    )
     return {"transaction": _out(txn)}
+
+
+def _own_accounts(db: Client, user_id: str, ids: list[str]) -> dict:
+    # For notification text only, so a failed lookup just means less detail.
+    try:
+        rows = db.table("accounts").select("id, account_type, account_number").eq("user_id", user_id).in_("id", ids).execute().data
+        return {row["id"]: row for row in rows}
+    except Exception:
+        return {}
+
+
+def _recipient(db: Client, account_number: str) -> dict | None:
+    try:
+        rows = db.table("accounts").select("id, user_id, account_type, account_number").eq("account_number", account_number).limit(1).execute().data
+        return rows[0] if rows else None
+    except Exception:
+        return None
 
 
 @router.post("/accounts/{account_id}/deposits", status_code=status.HTTP_201_CREATED)
@@ -126,6 +151,13 @@ def transfer(body: TransferRequest, user: dict = Depends(get_current_user), db: 
         "p_dest_id": body.destination_account_id, "p_amount": str(body.amount),
         "p_description": body.description,
     })
+    accounts = _own_accounts(db, user["id"], [body.source_account_id, body.destination_account_id])
+    notify(
+        db, user["id"], notifications.TRANSFER, "Transfer completed",
+        f"{money(body.amount)} moved from your {account_label(accounts.get(body.source_account_id))} "
+        f"to your {account_label(accounts.get(body.destination_account_id))}.",
+        transaction_id=rows[0]["id"] if rows else None,
+    )
     return {"transactions": [_out(r) for r in rows]}
 
 
@@ -137,4 +169,18 @@ def send_money(body: SendMoneyRequest, user: dict = Depends(get_current_user), d
         "p_recipient_number": body.recipient_account_number, "p_amount": str(body.amount),
         "p_description": body.description,
     })
+    source = _own_accounts(db, user["id"], [body.source_account_id]).get(body.source_account_id)
+    ending = body.recipient_account_number[-4:]
+    notify(
+        db, user["id"], notifications.TRANSFER, "Money sent",
+        f"You sent {money(body.amount)} from your {account_label(source)} to account ending {ending}.",
+        transaction_id=txn.get("id"),
+    )
+    # The recipient's own ledger row is written by post_customer_transfer; tell them too, by first name and initial
+    # only (the same wording as their transaction description).
+    recipient = _recipient(db, body.recipient_account_number)
+    if recipient:
+        sender = f"{user.get('first_name') or 'Another'} {(user.get('last_name') or 'customer')[:1]}.".strip()
+        notify(db, recipient["user_id"], notifications.TRANSFER, "Money received",
+               f"You received {money(body.amount)} from {sender} in your {account_label(recipient)}.")
     return {"transaction": _out(txn)}

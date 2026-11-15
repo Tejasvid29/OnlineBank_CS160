@@ -6,9 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 from supabase import Client
 
+import notifications
 from accounts import _get_own_account
 from auth import get_current_user, require_role
 from db import get_supabase
+from notifications import account_label, money, notify
 from transactions import _rpc
 
 router = APIRouter(prefix="/bill-payments", tags=["bill-payments"])
@@ -84,11 +86,16 @@ def schedule_payment(body: SchedulePaymentRequest, user: dict = Depends(get_curr
         row = _rpc(db, "pay_bill_now", {
             "p_user_id": user["id"], "p_account_id": body.account_id, "p_recipient": body.recipient, "p_amount": str(body.amount),
         })
+        notify(db, user["id"], notifications.BILL_PAYMENT, "Bill paid",
+               f"You paid {money(body.amount)} to {body.recipient} from your {account_label(account)}.")
         return {"payment": _out(row)}
     row = db.table("scheduled_payments").insert({
         "account_id": body.account_id, "customer_id": user["id"], "recipient": body.recipient,
         "amount": str(body.amount), "frequency": body.frequency, "next_payment_date": body.next_payment_date.isoformat(),
     }).execute().data[0]
+    notify(db, user["id"], notifications.BILL_PAYMENT, "Bill payment scheduled",
+           f"{money(body.amount)} to {body.recipient} is scheduled {body.frequency} from your {account_label(account)}, "
+           f"starting {body.next_payment_date:%B} {body.next_payment_date.day}.")
     return {"payment": _out(row)}
 
 

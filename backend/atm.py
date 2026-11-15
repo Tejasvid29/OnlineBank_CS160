@@ -5,9 +5,11 @@ from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field, field_validator
 from supabase import Client
 
+import notifications
 from accounts import _get_own_account
 from auth import get_current_user
 from db import get_supabase
+from notifications import account_label, money, notify
 from transactions import _out, _rpc
 
 router = APIRouter(prefix="/atm", tags=["atm"])
@@ -46,12 +48,19 @@ class AtmDepositRequest(AtmRequest):
 
 
 def _post(db: Client, user: dict, body: AtmRequest, amount: Decimal, kind: str, label: str):
-    _get_own_account(db, user["id"], body.account_id)  # 404s for other people's accounts
+    account = _get_own_account(db, user["id"], body.account_id)  # 404s for other people's accounts
     txn = _rpc(db, "post_atm_transaction", {
         "p_user_id": user["id"], "p_account_id": body.account_id, "p_amount": str(amount),
         "p_type": kind, "p_description": f"{label} · {body.atm_name.strip()}",
         "p_daily_limit": str(DAILY_WITHDRAWAL_LIMIT),
     })
+    deposit = kind == "deposit"
+    notify(
+        db, user["id"], notifications.DEPOSIT if deposit else notifications.WITHDRAWAL, label,
+        f"{money(amount)} was {'deposited to' if deposit else 'withdrawn from'} your {account_label(account)} "
+        f"at {body.atm_name.strip()}.",
+        transaction_id=txn.get("id"),
+    )
     return {"transaction": _out(txn)}
 
 

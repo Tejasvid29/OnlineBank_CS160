@@ -7,9 +7,11 @@ from pydantic import BaseModel
 from supabase import Client
 
 import audit
+import notifications
 from audit import record_event
 from auth import get_current_user
 from db import get_supabase
+from notifications import account_label, notify
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
 
@@ -99,6 +101,7 @@ def open_account(
             db, user["id"], audit.BANK_ACCOUNT_OPENED,
             {"account_id": rows[0]["id"], "account_number": rows[0]["account_number"], "account_type": body.account_type},
         )
+        notify(db, user["id"], notifications.ACCOUNT, "Account opened", f"Your new {account_label(rows[0])} is open.")
         return {"account": {k: rows[0][k] for k in ACCOUNT_COLUMNS.split(", ")}}
     raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Could not open the account.")
 
@@ -136,4 +139,6 @@ def close_account(account_id: str, user: dict = Depends(get_current_user), db: C
         db, user["id"], audit.BANK_ACCOUNT_CLOSED,
         {"account_id": account_id, "account_number": rows[0]["account_number"], "account_type": rows[0]["account_type"]},
     )
+    notify(db, user["id"], notifications.ACCOUNT, "Account closed",
+           f"Your {account_label(rows[0])} is closed. Its history is still available.")
     return {"account": {k: rows[0][k] for k in ACCOUNT_COLUMNS.split(", ")}}

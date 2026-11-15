@@ -15,11 +15,13 @@ from pydantic import BaseModel, Field, field_validator
 from supabase import Client
 
 import audit
+import notifications
 from accounts import _get_own_account
 from audit import record_event
 from auth import get_current_user, require_role
 from config import settings
 from db import get_supabase
+from notifications import account_label, money, notify
 
 router = APIRouter(prefix="/deposits", tags=["check-deposits"])
 
@@ -174,6 +176,9 @@ def submit_deposit(
         # An identical request won a race while the images were uploading.
         _remove_uploaded(bucket, uploaded)
         return _repeat_result(row, account_id, parsed_amount)
+    notify(db, user["id"], notifications.CHECK_DEPOSIT, "Check deposit received",
+           f"Your check deposit of {money(parsed_amount)} to your {account_label(account)} is pending review.",
+           transaction_id=row.get("transaction_id"), deposit_id=row["id"])
     return {"deposit": _out(row)}
 
 
@@ -258,6 +263,13 @@ def _decide(db: Client, deposit_id: uuid.UUID, admin: dict, decision: str, notes
         {"deposit_id": reviewed["id"], "amount": float(reviewed["amount"]), "account_number": account.get("account_number"),
          "account_type": account.get("account_type"), **({"notes": notes} if notes else {})},
         actor_id=admin["id"],
+    )
+    approved = decision == "approve"
+    notify(
+        db, reviewed["customer_id"], notifications.CHECK_DEPOSIT, "Check deposit approved" if approved else "Check deposit rejected",
+        f"Your check deposit of {money(reviewed['amount'])} to your {account_label(account)} "
+        + ("was approved and is now available." if approved else f"was rejected: {notes}"),
+        transaction_id=reviewed.get("transaction_id"), deposit_id=reviewed["id"],
     )
     return {"deposit": _review_out(reviewed)}
 

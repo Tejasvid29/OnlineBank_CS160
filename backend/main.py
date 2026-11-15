@@ -12,6 +12,7 @@ from atms import router as atms_router
 from auth import require_role, router as auth_router
 from bill_payments import router as bill_payments_router
 from deposits import review_router as deposit_review_router, router as deposits_router
+from notifications import router as notifications_router
 from config import settings
 from db import get_supabase
 from reports import router as reports_router
@@ -54,6 +55,7 @@ app.include_router(atm_router)
 app.include_router(atms_router)
 app.include_router(reports_router)
 app.include_router(statements_router)
+app.include_router(notifications_router)
 
 app.add_middleware(
     CORSMiddleware,

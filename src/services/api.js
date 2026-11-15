@@ -125,6 +125,7 @@ export const bankingApi = {
   cancelPayment: (id) => api(`/bill-payments/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   notifications: () => api('/notifications'),
   markNotificationRead: (id) => api(`/notifications/${encodeURIComponent(id)}/read`, { method: 'PATCH' }),
+  markAllNotificationsRead: () => api('/notifications/read-all', { method: 'POST' }),
   atms: (location) => api(`/atm/search?location=${encodeURIComponent(location)}`),
   atmsNear: (latitude, longitude) => api(`/atm/search?lat=${encodeURIComponent(latitude)}&lng=${encodeURIComponent(longitude)}`),
   checkDeposits: () => api('/deposits'),

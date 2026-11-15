@@ -65,6 +65,7 @@ class Database:
                 "front_sha256": "a" * 64, "back_sha256": "b" * 64,
             }],
             "audit_log": [],
+            "notifications": [],
         }
         self.bucket = Bucket()
         self.storage = SimpleNamespace(from_=lambda name: self.bucket)
@@ -73,8 +74,8 @@ class Database:
     def deposit(self): return self.tables["check_deposits"][0]
 
     def table(self, name):
-        if name == "audit_log":
-            return SimpleNamespace(insert=lambda row: SimpleNamespace(execute=lambda: self.tables["audit_log"].append(row)))
+        if name in ("audit_log", "notifications"):
+            return SimpleNamespace(insert=lambda row: SimpleNamespace(execute=lambda: self.tables[name].append(row)))
         return Query(self, name)
 
     def rpc(self, name, params):
@@ -192,6 +193,8 @@ def test_approve_credits_once_and_completes_transaction(admin, db):
     assert db.deposit["created_at"] == "2026-11-01T12:00:00+00:00"
     [event] = db.tables["audit_log"]
     assert event["action"] == "check_deposit_approved" and event["actor_id"] == ADMIN_ID and event["customer_id"] == CUSTOMER_ID
+    [notice] = db.tables["notifications"]
+    assert notice["user_id"] == CUSTOMER_ID and notice["title"] == "Check deposit approved" and notice["deposit_id"] == DEPOSIT_ID
 
 
 def test_approving_twice_fails_and_does_not_credit_again(admin, db):
@@ -227,6 +230,8 @@ def test_reject_keeps_balance_and_fails_transaction(admin, db):
     assert db.transaction["created_at"] == "2026-11-01T12:00:00+00:00"
     assert db.tables["audit_log"][0]["action"] == "check_deposit_rejected"
     assert db.tables["audit_log"][0]["details"]["notes"] == "Signature missing"
+    [notice] = db.tables["notifications"]
+    assert notice["title"] == "Check deposit rejected" and notice["message"].endswith("was rejected: Signature missing")
     assert admin.post(url(f"/{DEPOSIT_ID}/approve")).status_code == 409
 
 
@@ -241,4 +246,4 @@ def test_manager_cannot_review_own_deposit(db):
     finally:
         app.dependency_overrides.clear()
     assert db.account["balance"] == 100.0 and db.deposit["status"] == "pending"
-    assert db.transaction["status"] == "pending" and db.tables["audit_log"] == []
+    assert db.transaction["status"] == "pending" and db.tables["audit_log"] == [] and db.tables["notifications"] == []

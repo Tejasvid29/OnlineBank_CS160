@@ -48,7 +48,10 @@ def test_once_payment_is_paid_immediately_without_a_date(client, db):
     name, params = db.rpc.call_args.args
     assert name == "pay_bill_now"
     assert params["p_amount"] == "40" and params["p_recipient"] == "Electric Co" and params["p_user_id"] == USER_ID
-    db.table.return_value.insert.assert_not_called()
+    # pay_bill_now writes the payment row itself; the only insert from the route is the notification.
+    assert "scheduled_payments" not in [call.args[0] for call in db.table.call_args_list]
+    [notification] = [call.args[0] for call in db.table.return_value.insert.call_args_list]
+    assert notification["type"] == "bill_payment" and notification["user_id"] == USER_ID
 
 
 def test_once_payment_with_insufficient_funds_records_nothing(client, db):

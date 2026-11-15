@@ -468,6 +468,19 @@ export function AppProvider({ children }) {
     finally { setBusy(false); }
   }
 
+  // Opening the bell fetches the latest notifications, so ones created since sign-in show up. A failed refresh keeps the list.
+  useEffect(() => {
+    if (!apiConfigured || !signedIn || !showNotifications) return;
+    bankingApi.notifications().then((result) => setNotifications(unwrap(result, 'notifications'))).catch(() => {});
+  }, [showNotifications, signedIn]);
+
+  async function markAllRead() {
+    try {
+      if (apiConfigured) await bankingApi.markAllNotificationsRead();
+      setNotifications((current) => current.map((entry) => ({ ...entry, read: true })));
+    } catch (error) { fail(error); }
+  }
+
   async function markRead(item) {
     try {
       if (apiConfigured) await bankingApi.markNotificationRead(item.id);
@@ -593,7 +606,7 @@ export function AppProvider({ children }) {
     transactionType, setTransactionType, transactionStart, setTransactionStart, transactionEnd, setTransactionEnd, profileDraft,
     setProfileDraft, unread, isManager, total, visibleTransactions, accountOptions,
     navigate, signIn, verifyMfa, resetPassword, signOut, submitTransfer, submitPayment, cancelPayment, createAccount,
-    closeAccount, findAtms, findAtmsNear, atmTransaction, atmWithdrawalAllowance, depositError, submitDeposit, saveProfile, markRead, openManager,
+    closeAccount, findAtms, findAtmsNear, atmTransaction, atmWithdrawalAllowance, depositError, submitDeposit, saveProfile, markRead, markAllRead, openManager,
     reportResult, runReport, auditLog, loadAuditLog,
     checkReviewStatus: checkReview.status, checkReviewList, checkReviewDetail, refreshCheckReviews, openCheckReview, reviewCheckDeposit,
   };
