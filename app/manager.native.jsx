@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View } from 'react-native';
-import { matchesWords, money, searchWords, titleCase } from '../src/theme';
+import { accountSearchValues, customerSearchValues, matchesWords, money, searchWords, titleCase } from '../src/theme';
 import { styles } from '../src/styles/appStyles';
 import CustomerAuditRow from '../src/components/AuditLog';
 import ReportBuilder from '../src/components/ReportBuilder';
@@ -23,11 +23,12 @@ export default function Manager() {
 
   if (!isManager) return <SectionHeading title="Access denied" subtitle="This page is available to authorized staff only." />;
 
+  // Word by word over the values each row shows (theme.js, shared with the web dashboard), never field names.
   const words = searchWords(managerSearch);
-  const matches = (item) => matchesWords(words, Object.values(item));
-  const customers = managerData.customers.filter(matches);
-  const managedAccounts = managerData.accounts.filter(matches);
-  const search = <Field label="Search customers and accounts" value={managerSearch} onChangeText={setManagerSearch} placeholder="Name, customer ID, or account ID" />;
+  const customers = managerData.customers.filter((item) => matchesWords(words, customerSearchValues(item)));
+  const managedAccounts = managerData.accounts.filter((item) => matchesWords(words, accountSearchValues(item)));
+  const owner = (account) => `${account.users?.first_name || ''} ${account.users?.last_name || ''}`.trim();
+  const search = <Field label="Search customers and accounts" value={managerSearch} onChangeText={setManagerSearch} placeholder="Name, email, ZIP, account number or ID" />;
 
   return <>
     <SectionHeading title="Manager dashboard" subtitle="Authorized staff view" />
@@ -48,7 +49,7 @@ export default function Manager() {
       {search}
       <Card style={styles.nativeCard}>
         <Text style={styles.rowSub}>{managedAccounts.length} shown</Text>
-        {managedAccounts.length ? managedAccounts.map((item, index) => <View style={styles.simpleRow} key={item.id || index}><Text style={styles.rowTitle}>{titleCase(item.account_type)} · {item.account_number || item.id}</Text><Text style={styles.rowSub}>{money(item.balance || 0)} · {titleCase(item.status)}</Text></View>) : <Text style={styles.emptyText}>No matching accounts.</Text>}
+        {managedAccounts.length ? managedAccounts.map((item, index) => <View style={styles.simpleRow} key={item.id || index}><Text style={styles.rowTitle}>{titleCase(item.account_type)} · {item.account_number || item.id}</Text><Text style={styles.rowSub}>{owner(item) ? `${owner(item)} · ` : ''}{money(item.balance || 0)} · {titleCase(item.status)}</Text></View>) : <Text style={styles.emptyText}>No matching accounts.</Text>}
       </Card>
     </View>
     <View style={tab !== 'checks' && styles.nativeHidden}>
