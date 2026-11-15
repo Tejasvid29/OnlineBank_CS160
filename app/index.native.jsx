@@ -1,9 +1,11 @@
 import React from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import { colors, dateLabel, money } from '../src/theme';
+import { apiConfigured } from '../src/services/api';
 import { styles } from '../src/styles/appStyles';
 import { Card, Icon, LinkButton, SectionHeading, Text } from '../src/ui/primitives';
 import { TEXT_CAP, useTextScale } from '../src/ui/textScale';
+import { usePullToRefresh } from '../src/ui/mobilePrimitives';
 import { AccountCard } from '../src/components/AccountCard';
 import { ActivityRows } from '../src/components/ActivityRows';
 import { useApp } from '../src/state/AppState';
@@ -17,8 +19,10 @@ const SHORTCUTS = [
 ];
 
 // Native overview: balance in the hero, shortcuts, compact accounts, and a scrollable recent-activity card.
+// Pull down to reload balances, activity, payments and notifications (API mode; demo data stays as it is).
 export default function Overview() {
-  const { profile, accounts, payments, transactions, total, navigate } = useApp();
+  const { profile, accounts, payments, transactions, total, navigate, refreshData } = useApp();
+  usePullToRefresh(apiConfigured ? refreshData : null);
   const { large } = useTextScale();
   // At large text sizes a row is several lines tall, so the short scrolling box would show one or two at a time:
   // show the latest five in full instead, with View all for the rest.

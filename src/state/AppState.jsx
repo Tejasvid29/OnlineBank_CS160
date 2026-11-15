@@ -121,7 +121,9 @@ export function AppProvider({ children }) {
 
   function fail(error) { setNotice(error?.message || 'Something went wrong. Please try again.'); }
 
-  async function loadData() {
+  // keepSelections (pull to refresh): keep the accounts already chosen on Activity, Transfer, Send and Bill pay, and the
+  // Profile form, as long as those accounts still exist. Otherwise (sign-in, after an action) reset them to the defaults.
+  async function loadData({ keepSelections = false } = {}) {
     if (!apiConfigured) return;
     // A missing ancillary endpoint must not block sign-in.
     const optional = (request) => request.catch(() => []);
@@ -132,18 +134,24 @@ export function AppProvider({ children }) {
     const nextAccounts = unwrap(accountResult, 'accounts');
     const lists = await Promise.all(nextAccounts.map((account) => optional(bankingApi.transactions(account.id))));
     setProfile(nextProfile);
-    setProfileDraft({ first_name: nextProfile.first_name || '', last_name: nextProfile.last_name || '', phone: nextProfile.phone || '' });
+    if (!keepSelections) setProfileDraft({ first_name: nextProfile.first_name || '', last_name: nextProfile.last_name || '', phone: nextProfile.phone || '' });
     setAccounts(nextAccounts);
     const activeAccounts = nextAccounts.filter(isActivated);
-    setSelectedAccount(nextAccounts[0]?.id || 'all');
-    setPaymentAccount(activeAccounts[0]?.id || '');
-    setTransferFrom(activeAccounts[0]?.id || '');
-    setSendFrom(activeAccounts[0]?.id || '');
-    setTransferTo(activeAccounts[1]?.id || '');
+    const keep = (list, fallback, ...allowed) => (current) => keepSelections && (allowed.includes(current) || list.some((item) => item.id === current)) ? current : fallback;
+    setSelectedAccount(keep(nextAccounts, nextAccounts[0]?.id || 'all', 'all'));
+    setPaymentAccount(keep(activeAccounts, activeAccounts[0]?.id || ''));
+    setTransferFrom(keep(activeAccounts, activeAccounts[0]?.id || ''));
+    setSendFrom(keep(activeAccounts, activeAccounts[0]?.id || ''));
+    setTransferTo(keep(activeAccounts, activeAccounts[1]?.id || ''));
     setPayments(unwrap(paymentResult, 'payments'));
     setNotifications(unwrap(notificationResult, 'notifications'));
     if (depositResult !== null) setCheckDeposits(unwrap(depositResult, 'deposits'));
     setTransactions(lists.flatMap((result) => unwrap(result, 'transactions')));
+  }
+
+  // Pull to refresh on the phone's Overview: reload the user's data without resetting other screens.
+  async function refreshData() {
+    try { await loadData({ keepSelections: true }); } catch (error) { fail(error); }
   }
 
   async function signIn() {
@@ -617,7 +625,7 @@ export function AppProvider({ children }) {
     paymentDate, setPaymentDate, frequency, setFrequency, atmSearch, setAtmSearch, atms, transactionSearch, setTransactionSearch,
     transactionType, setTransactionType, transactionStart, setTransactionStart, transactionEnd, setTransactionEnd, profileDraft,
     setProfileDraft, unread, isManager, total, visibleTransactions, accountOptions,
-    navigate, signIn, verifyMfa, resetPassword, signOut, submitTransfer, submitPayment, cancelPayment, createAccount,
+    navigate, refreshData, signIn, verifyMfa, resetPassword, signOut, submitTransfer, submitPayment, cancelPayment, createAccount,
     closeAccount, findAtms, findAtmsNear, atmTransaction, atmWithdrawalAllowance, depositError, submitDeposit, saveProfile, markRead, markAllRead, openManager,
     reportResult, runReport, auditLog, loadAuditLog,
     checkReviewStatus: checkReview.status, checkReviewList, checkReviewDetail, refreshCheckReviews, openCheckReview, reviewCheckDeposit,

@@ -58,7 +58,7 @@ export function AppShell() {
 // Screens that can turn on pull to refresh with usePullToRefresh (src/ui/mobilePrimitives.jsx). Their ScrollView always
 // has a RefreshControl: ScrollView renders a different tree with and without one, so adding or removing it would remount
 // the whole screen and reset its state. Only the control's props change when a handler is set or cleared.
-const PULL_TO_REFRESH_ROUTES = ['manager'];
+const PULL_TO_REFRESH_ROUTES = ['index', 'manager'];
 
 // keyboardOffset is the header height above the screen, so KeyboardAvoidingView measures from the right place.
 function ScreenFrame({ routeName, keyboardOffset, children }) {
