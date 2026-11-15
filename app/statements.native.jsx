@@ -60,9 +60,9 @@ export default function Statements() {
 
   if (open) return <>
     <SectionHeading title="Statement" subtitle={`${titleCase(account?.account_type)} ${account?.account_number}`} />
-    <LinkButton onPress={() => setOpen(null)} icon="arrow-back-outline">Back to statements</LinkButton>
+    <View style={styles.nativeBackLink}><LinkButton onPress={() => setOpen(null)} icon="arrow-back-outline">Back to statements</LinkButton></View>
     <Notice text={notice.text} kind={notice.kind} />
-    <Card>
+    <Card style={styles.nativeCard}>
       <Text style={styles.rowSub}>{periodLabel(open)}</Text>
       <Divider />
       {[['Opening balance', open.opening_balance], ['Deposits', open.total_deposits], ['Withdrawals', -open.total_withdrawals], ['Closing balance', open.closing_balance]].map(([label, value]) =>
@@ -84,7 +84,7 @@ export default function Statements() {
     <SectionHeading title="Statements" subtitle="Generate one for this month so far. A full statement is also created and emailed at the end of every month." />
     <Notice text={notice.text} kind={notice.kind} />
     <Select label="Account" value={selected} options={accountOptions} onChange={setAccountId} />
-    <Action onPress={generate} disabled={busy} icon="document-text-outline">{busy ? 'Generating…' : 'Generate statement up to today'}</Action>
+    <Action onPress={generate} disabled={busy} icon="document-text-outline" style={[styles.nativeFullAction, { marginBottom: 16 }]}>{busy ? 'Generating…' : 'Generate statement up to today'}</Action>
     <Text style={styles.nativeCount}>{list.length} saved {list.length === 1 ? 'statement' : 'statements'}</Text>
     <Card style={styles.nativeListCard}>
       {list.length ? list.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => view(item.id)} style={styles.paymentRow}>
