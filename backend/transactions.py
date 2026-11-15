@@ -8,7 +8,7 @@ from supabase import Client
 
 import notifications
 from accounts import _get_own_account
-from auth import get_current_user
+from auth import get_current_user, require_role
 from db import get_supabase
 from notifications import account_label, money, notify
 
@@ -132,13 +132,18 @@ def _recipient(db: Client, account_number: str) -> dict | None:
         return None
 
 
+# Direct deposits and withdrawals post a completed transaction of any amount, so only admins may use them. Customers
+# move money through the ATM routes (atm.py, with their limits), check deposits (deposits.py, reviewed) and transfers.
+admin_only = require_role("admin")
+
+
 @router.post("/accounts/{account_id}/deposits", status_code=status.HTTP_201_CREATED)
-def deposit(account_id: str, body: AccountTransactionRequest, user: dict = Depends(get_current_user), db: Client = Depends(get_supabase)):
+def deposit(account_id: str, body: AccountTransactionRequest, user: dict = Depends(admin_only), db: Client = Depends(get_supabase)):
     return _post(db, user, account_id, body.amount, "deposit", body.description)
 
 
 @router.post("/accounts/{account_id}/withdrawals", status_code=status.HTTP_201_CREATED)
-def withdraw(account_id: str, body: AccountTransactionRequest, user: dict = Depends(get_current_user), db: Client = Depends(get_supabase)):
+def withdraw(account_id: str, body: AccountTransactionRequest, user: dict = Depends(admin_only), db: Client = Depends(get_supabase)):
     return _post(db, user, account_id, -body.amount, "withdrawal", body.description)
 
 

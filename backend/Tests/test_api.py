@@ -42,8 +42,9 @@ def test_auth_require(client):
     assert response.status_code == 401
 
 def test_invalid_deposit(client):
+    # Admin, so the request reaches validation (customers get 403 first; see test_admin_transactions.py).
     app.dependency_overrides[get_current_user] = lambda: {
-        "id": "test_user_id", "role": "user"}
+        "id": "test_user_id", "role": "admin"}
 
     response = client.post(
         "/accounts/test_account/deposits",
