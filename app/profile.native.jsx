@@ -3,7 +3,7 @@ import { Platform, Switch, View } from 'react-native';
 import { apiConfigured } from '../src/services/api';
 import { styles } from '../src/styles/appStyles';
 import { colors } from '../src/theme';
-import { Action, Card, Field, LinkButton, Text } from '../src/ui/primitives';
+import { Action, Card, Divider, Field, LinkButton, Text } from '../src/ui/primitives';
 import { LARGER_TEXT_FACTOR, TEXT_CAP, useTextScale } from '../src/ui/textScale';
 import { Collapsible } from '../src/ui/mobilePrimitives';
 import { useApp } from '../src/state/AppState';
@@ -53,6 +53,16 @@ export default function Profile() {
       <Field label="Last name" value={profileDraft.last_name} onChangeText={setDraft('last_name')} autoCapitalize="words" />
       <Field label="Phone number" value={profileDraft.phone} onChangeText={setDraft('phone')} keyboardType="phone-pad" />
       <View style={styles.field}><Text style={styles.fieldLabel}>Email address</Text><Text style={styles.readOnly}>{profile.email}</Text></View>
+      <Divider />
+      <Text style={styles.cardTitle} maxFontSizeMultiplier={TEXT_CAP.heading}>Mailing address</Text>
+      <Field label="Street address" value={profileDraft.address_line1} onChangeText={setDraft('address_line1')} placeholder="123 Main St" autoCapitalize="words" />
+      <Field label="Apartment, suite or unit (optional)" value={profileDraft.address_line2} onChangeText={setDraft('address_line2')} placeholder="Apt 4" autoCapitalize="words" />
+      <Field label="City" value={profileDraft.city} onChangeText={setDraft('city')} autoCapitalize="words" />
+      {/* State and ZIP side by side; stacked at large text sizes. */}
+      <View style={[styles.nativeRow2, large && styles.nativeRow2Large]}>
+        <View style={large ? null : styles.nativeCell}><Field label="State" value={profileDraft.state} onChangeText={setDraft('state')} placeholder="CA" autoCapitalize="characters" /></View>
+        <View style={large ? null : styles.nativeCell}><Field label="ZIP code" value={profileDraft.zip_code} onChangeText={setDraft('zip_code')} placeholder="94105" keyboardType="number-pad" /></View>
+      </View>
       <Action onPress={saveProfile} disabled={busy} style={styles.nativeFullAction}>Save changes</Action>
     </Card>
 

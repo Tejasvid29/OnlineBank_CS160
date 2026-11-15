@@ -1,6 +1,7 @@
 export const demoProfile = {
   first_name: 'Jordan', last_name: 'Taylor', email: 'jordan.taylor@example.com',
   phone: '(415) 555-0184', role: 'customer',
+  address_line1: '500 Market St', address_line2: 'Apt 12', city: 'San Francisco', state: 'CA', zip_code: '94105',
 };
 
 export const demoAccounts = [

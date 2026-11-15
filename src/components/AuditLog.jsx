@@ -5,7 +5,10 @@ import { styles } from '../styles/appStyles';
 import { Text } from '../ui/primitives';
 import { useApp } from '../state/AppState';
 
-const FIELD_LABELS = { first_name: 'First name', last_name: 'Last name', phone_number: 'Phone' };
+const FIELD_LABELS = {
+  first_name: 'First name', last_name: 'Last name', phone_number: 'Phone',
+  address_line1: 'Street address', address_line2: 'Apt, suite or unit', city: 'City', state: 'State', zip_code: 'ZIP code',
+};
 
 function describe({ action, details = {} }) {
   const account = details.account_number ? `${titleCase(details.account_type)} ${details.account_number}` : '';

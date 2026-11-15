@@ -18,7 +18,12 @@ from mailer import send_email
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-PROFILE_COLUMNS = "id, first_name, last_name, email, phone_number, zip_code, role, status, created_at"
+PROFILE_COLUMNS = (
+    "id, first_name, last_name, email, phone_number, address_line1, address_line2, city, state, zip_code, role, status, created_at"
+)
+# Mailing address columns. zip_code doubles as the postal code (registration collects it on its own).
+ADDRESS_COLUMNS = ("address_line1", "address_line2", "city", "state", "zip_code")
+INCOMPLETE_ADDRESS = "Enter the street address, city, state and ZIP code, or clear the address."
 INVALID_LOGIN = "Invalid email or password."
 MAX_FAILED_LOGINS = 3
 LOCKOUT_SECONDS = 5 * 60
@@ -42,8 +47,17 @@ class UpdateProfileRequest(BaseModel):
     first_name: str | None = Field(default=None, min_length=1, max_length=60)
     last_name: str | None = Field(default=None, min_length=1, max_length=60)
     phone: str | None = Field(default=None, pattern=r"^\+?[0-9 ()\-]{7,20}$")
+    # Mailing address. Send "" or null to clear a field. Saved only if the result is complete or empty (see _address_error).
+    address_line1: str | None = Field(default=None, max_length=100, description="Street address.")
+    address_line2: str | None = Field(default=None, max_length=100, description="Apartment, suite or unit (optional).")
+    city: str | None = Field(default=None, max_length=60)
+    state: str | None = Field(default=None, pattern=r"^\s*([A-Za-z]{2})?\s*$", description="Two-letter state code, e.g. CA.")
+    zip_code: str | None = Field(default=None, pattern=r"^\s*([0-9]{5})?\s*$", description="5-digit ZIP code.")
 
-    model_config = ConfigDict(json_schema_extra={"examples": [{"last_name": "Lopez-Park", "phone": "555-987-6543"}]})
+    model_config = ConfigDict(json_schema_extra={"examples": [
+        {"last_name": "Lopez-Park", "phone": "555-987-6543"},
+        {"address_line1": "1 Washington Sq", "address_line2": "Apt 4", "city": "San Jose", "state": "CA", "zip_code": "95192"},
+    ]})
 
 
 class LoginRequest(BaseModel):
@@ -84,6 +98,25 @@ def _load_profile(db: Client, user_id: str) -> dict:
     if rows[0]["status"] != "active":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "This account is inactive.")
     return rows[0]
+
+
+def _clean(column: str, value):
+    """Trim text; optional address fields store blanks as null; state is uppercase."""
+    if not isinstance(value, str):
+        return value
+    value = value.strip()
+    if column in ADDRESS_COLUMNS and not value:
+        return None
+    return value.upper() if column == "state" else value
+
+
+def _address_error(profile: dict) -> str | None:
+    """An address must be complete (street, city, state, ZIP) or empty. A ZIP code alone is allowed."""
+    street_city_state = [profile.get(column) for column in ("address_line1", "address_line2", "city", "state")]
+    if not any(street_city_state):
+        return None
+    required = ("address_line1", "city", "state", "zip_code")
+    return None if all(profile.get(column) for column in required) else INCOMPLETE_ADDRESS
 
 
 def _session_out(session, profile: dict) -> dict:
@@ -321,19 +354,29 @@ def reset_password(body: ResetPasswordRequest, db: Client = Depends(get_supabase
     record_event(db, result.user.id, audit.PASSWORD_RESET)
 
 
-@router.patch("/me", summary="Update your name or phone number", responses=errors(*SIGNED_IN))
+@router.patch(
+    "/me", summary="Update your name, phone number or mailing address",
+    responses=errors(*SIGNED_IN, (422, "Invalid field, or an incomplete mailing address.")),
+)
 def update_profile(body: UpdateProfileRequest, user: dict = Depends(get_current_user), db: Client = Depends(get_supabase)):
     """Send only the fields to change. Email, role and status can't be changed here."""
     # Only the fields the client sent, and only those that actually differ, are written and logged.
-    submitted = {"first_name": body.first_name, "last_name": body.last_name, "phone_number": body.phone}
+    submitted = {
+        "first_name": body.first_name, "last_name": body.last_name, "phone_number": body.phone,
+        **{column: getattr(body, column) for column in ADDRESS_COLUMNS},
+    }
     changes = {
-        column: value.strip() if isinstance(value, str) else value
+        column: _clean(column, value)
         for column, value in submitted.items()
         if (column if column != "phone_number" else "phone") in body.model_fields_set
     }
     changes = {column: value for column, value in changes.items() if user.get(column) != value}
     if not changes:
         return {"profile": _profile_out(user)}
+    # Checked only when the address changes, so an old partial address never blocks a name or phone update.
+    error = _address_error({**user, **changes}) if any(column in ADDRESS_COLUMNS for column in changes) else None
+    if error:
+        raise HTTPException(422, error)
     rows = db.table("users").update(changes).eq("id", user["id"]).execute().data
     record_event(
         db,

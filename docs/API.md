@@ -96,7 +96,7 @@ The lock icon in `/docs` marks the routes that need a bearer token: all routes e
 | POST | `/auth/forgot-password` | Email a password-reset link (public; always 204) |
 | POST | `/auth/reset-password` | Set a new password from a reset link (public) |
 | GET | `/auth/me` | Get your profile |
-| PATCH | `/auth/me` | Update your name or phone number (send only the fields to change) |
+| PATCH | `/auth/me` | Update your name, phone number or mailing address (send only the fields to change). The address (`address_line1`, `address_line2`, `city`, `state`, `zip_code`) must end up complete or empty; a ZIP code alone is allowed |
 | POST | `/auth/logout` | Sign out |
 
 ### accounts

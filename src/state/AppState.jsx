@@ -12,7 +12,10 @@ const isWeb = Platform.OS === 'web';
 // Local date as YYYY-MM-DD, computed when needed so an app left open past midnight stays correct.
 const todayString = () => { const now = new Date(); return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
 const emptyRegisterDraft = { first_name: '', last_name: '', phone: '', zip_code: '', confirm: '' };
-const initialProfileDraft = apiConfigured ? { first_name: '', last_name: '', phone: '' } : { first_name: demoProfile.first_name, last_name: demoProfile.last_name, phone: demoProfile.phone };
+// The Profile form: name, phone and mailing address (zip_code is the postal code).
+const ADDRESS_FIELDS = ['address_line1', 'address_line2', 'city', 'state', 'zip_code'];
+const profileDraftFrom = (profile) => Object.fromEntries(['first_name', 'last_name', 'phone', ...ADDRESS_FIELDS].map((key) => [key, profile[key] || '']));
+const initialProfileDraft = profileDraftFrom(apiConfigured ? {} : demoProfile);
 const initialManagerData = apiConfigured ? { customers: [], accounts: [], reports: [] } : demoManagerData;
 const emptyAuditLog = { customerId: null, entries: [] };
 // Manager check review: the list for the chosen status, and the deposit opened for review (with signed image URLs).
@@ -134,7 +137,7 @@ export function AppProvider({ children }) {
     const nextAccounts = unwrap(accountResult, 'accounts');
     const lists = await Promise.all(nextAccounts.map((account) => optional(bankingApi.transactions(account.id))));
     setProfile(nextProfile);
-    if (!keepSelections) setProfileDraft({ first_name: nextProfile.first_name || '', last_name: nextProfile.last_name || '', phone: nextProfile.phone || '' });
+    if (!keepSelections) setProfileDraft(profileDraftFrom(nextProfile));
     setAccounts(nextAccounts);
     const activeAccounts = nextAccounts.filter(isActivated);
     const keep = (list, fallback, ...allowed) => (current) => keepSelections && (allowed.includes(current) || list.some((item) => item.id === current)) ? current : fallback;
@@ -477,14 +480,30 @@ export function AppProvider({ children }) {
     finally { setBusy(false); }
   }
 
+  // The same rules as PATCH /auth/me (backend/auth.py), checked here first so the message shows without a round trip.
+  function addressError(draft) {
+    const value = (key) => draft[key].trim();
+    if (value('state') && !/^[A-Za-z]{2}$/.test(value('state'))) return 'Enter the two-letter state code, for example CA.';
+    if (value('zip_code') && !/^[0-9]{5}$/.test(value('zip_code'))) return 'Enter a valid 5-digit ZIP code.';
+    const started = ['address_line1', 'address_line2', 'city', 'state'].some(value);
+    if (started && !['address_line1', 'city', 'state', 'zip_code'].every(value)) return 'Enter the street address, city, state and ZIP code, or clear the address.';
+    return '';
+  }
+
   async function saveProfile() {
     if (!profileDraft.first_name.trim() || !profileDraft.last_name.trim()) { setNotice('Enter your first and last name.'); return; }
+    if (profileDraft.phone.trim() && !/^\+?[0-9 ()-]{7,20}$/.test(profileDraft.phone.trim())) { setNotice('Enter a valid phone number.'); return; }
+    const error = addressError(profileDraft);
+    if (error) { setNotice(error); return; }
     setBusy(true); setNotice('');
     try {
+      const address = Object.fromEntries(ADDRESS_FIELDS.map((key) => [key, profileDraft[key].trim() || null]));
+      if (address.state) address.state = address.state.toUpperCase();
       if (apiConfigured) {
-        const result = await bankingApi.updateProfile({ first_name: profileDraft.first_name, last_name: profileDraft.last_name, phone: profileDraft.phone || null });
+        const result = await bankingApi.updateProfile({ first_name: profileDraft.first_name, last_name: profileDraft.last_name, phone: profileDraft.phone.trim() || null, ...address });
         setProfile(result.profile);
-      } else setProfile((current) => ({ ...current, ...profileDraft }));
+        setProfileDraft(profileDraftFrom(result.profile));
+      } else setProfile((current) => ({ ...current, ...profileDraft, ...address }));
       setNotice('Your profile was updated.', 'success');
     } catch (error) { fail(error); }
     finally { setBusy(false); }
