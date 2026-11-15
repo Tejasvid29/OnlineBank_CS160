@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Alert, Image, Linking, Pressable, Text, View } from 'react-native';
+import { Alert, Image, Linking, Pressable, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { colors, dateLabel, isActivated, money, titleCase } from '../src/theme';
 import { styles } from '../src/styles/appStyles';
-import { Action, Card, Field, Icon, LinkButton, SectionHeading } from '../src/ui/primitives';
+import { Action, Card, Field, Icon, LinkButton, SectionHeading, Text } from '../src/ui/primitives';
+import { TEXT_CAP, useTextScale } from '../src/ui/textScale';
 import { Select } from '../src/ui/mobilePrimitives';
 import { useApp } from '../src/state/AppState';
 import { discardCheckPhoto } from '../src/services/checkPhotoCache';
@@ -40,6 +41,9 @@ export default function Checks() {
   const [photos, setPhotos] = useState({ front: null, back: null });
   const [cameraBlocked, setCameraBlocked] = useState(false);
   const [submitted, setSubmitted] = useState(null);
+  const { large } = useTextScale();
+  // Large text: label above value, so a long account name isn't squeezed.
+  const reviewRow = [styles.nativeReviewRow, large && styles.nativeStacked];
   const account = accounts.find((item) => item.id === accountId);
   const options = open.map((item) => ({ value: item.id, label: `${titleCase(item.account_type)} ${item.account_number}`, detail: `Balance ${money(item.balance)}` }));
 
@@ -104,7 +108,7 @@ export default function Checks() {
 
   if (step === 'done') return <Card style={[styles.nativeCard, styles.nativeDone]}>
     <View style={styles.nativeDoneIcon}><Icon name="checkmark" size={30} color={colors.green} /></View>
-    <Text style={styles.nativeSectionTitle}>Deposit submitted</Text>
+    <Text style={styles.nativeSectionTitle} maxFontSizeMultiplier={TEXT_CAP.heading}>Deposit submitted</Text>
     <Text style={[styles.bodyText, { textAlign: 'center' }]}>{money(Number(amount))} to {titleCase(account?.account_type)}. Your check is pending review. Your balance will not change unless it is approved and clears.</Text>
     <Text selectable style={styles.nativeHint}>Reference: {submitted?.id}</Text>
     <Action onPress={() => { setSelectedAccount(accountId); navigate('/activity'); }} style={styles.nativeFullAction}>View activity</Action>
@@ -128,20 +132,20 @@ export default function Checks() {
     </Card>}
 
     {step === 'details' && checkDeposits.length > 0 && <Card style={styles.nativeCard}>
-      <Text style={styles.cardTitle}>Recent check deposits</Text>
+      <Text style={styles.cardTitle} maxFontSizeMultiplier={TEXT_CAP.heading}>Recent check deposits</Text>
       {checkDeposits.slice(0, 5).map((item) => <View key={item.id} style={styles.nativeReviewRow}>
-        <View><Text style={styles.rowTitle}>{money(Number(item.amount))}</Text><Text style={styles.rowSub}>{dateLabel(item.created_at)} · {titleCase(item.status)}</Text></View>
+        <View style={{ flex: 1 }}><Text style={styles.rowTitle}>{money(Number(item.amount))}</Text><Text style={styles.rowSub}>{dateLabel(item.created_at)} · {titleCase(item.status)}</Text></View>
         <Icon name={item.status === 'pending' ? 'time-outline' : item.status === 'rejected' ? 'close-circle-outline' : 'checkmark-circle-outline'} color={item.status === 'pending' ? colors.amber : item.status === 'rejected' ? colors.red : colors.green} />
       </View>)}
     </Card>}
 
     {side && <Card style={styles.nativeCard}>
-      <Text style={styles.cardTitle}>{side.title}</Text>
+      <Text style={styles.cardTitle} maxFontSizeMultiplier={TEXT_CAP.heading}>{side.title}</Text>
       {photos[step]
         ? <Image source={{ uri: photos[step].uri }} style={styles.nativeCheckPhoto} resizeMode="contain" accessibilityLabel={`Photo of the ${step} of the check`} />
-        : <Pressable accessibilityRole="button" accessibilityLabel={`Take a photo of the ${step} of the check`} onPress={() => capture(step)} style={styles.nativeCheckPlaceholder}>
+        : <Pressable accessibilityRole="button" accessibilityLabel={`Take a photo of the ${step} of the check`} onPress={() => capture(step)} style={large ? styles.nativeCheckPlaceholderTall : styles.nativeCheckPlaceholder}>
           <Icon name="camera-outline" size={32} color={colors.muted} />
-          <Text style={styles.rowSub}>Tap to take a photo, or choose one from your photos below</Text>
+          <Text style={[styles.rowSub, { textAlign: 'center' }]}>Tap to take a photo, or choose one from your photos below</Text>
         </Pressable>}
       {cameraBlocked && <View style={[styles.notice, styles.noticeError]}>
         <Icon name="alert-circle-outline" size={19} color={colors.red} />
@@ -165,9 +169,9 @@ export default function Checks() {
     </Card>}
 
     {step === 'review' && <Card style={styles.nativeCard}>
-      <View style={styles.nativeReviewRow}><Text style={styles.rowSub}>Deposit to</Text><Text style={styles.rowTitle}>{titleCase(account?.account_type)} {account?.account_number}</Text></View>
-      <View style={styles.nativeReviewRow}><Text style={styles.rowSub}>Amount</Text><Text style={styles.rowTitle}>{money(Number(amount))}</Text></View>
-      <View style={[styles.nativeRow2, { marginTop: 16, marginBottom: 16 }]}>
+      <View style={reviewRow}><Text style={styles.rowSub}>Deposit to</Text><Text style={[styles.rowTitle, styles.nativeReviewValue, large && styles.nativeReviewValueLarge]}>{titleCase(account?.account_type)} {account?.account_number}</Text></View>
+      <View style={reviewRow}><Text style={styles.rowSub}>Amount</Text><Text style={[styles.rowTitle, styles.nativeReviewValue, large && styles.nativeReviewValueLarge]}>{money(Number(amount))}</Text></View>
+      <View style={[styles.nativeRow2, large && styles.nativeRow2Large, { marginTop: 16, marginBottom: 16 }]}>
         {['front', 'back'].map((name) => <View key={name} style={styles.nativeCell}>
           <Image source={{ uri: photos[name]?.uri }} style={styles.nativeCheckThumb} resizeMode="contain" accessibilityLabel={`Photo of the ${name} of the check`} />
           <LinkButton onPress={() => capture(name)}>Retake {name}</LinkButton>

@@ -1,7 +1,8 @@
 import React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { money, titleCase } from '../theme';
 import { styles } from '../styles/appStyles';
+import { Text } from '../ui/primitives';
 import { useApp } from '../state/AppState';
 
 const FIELD_LABELS = { first_name: 'First name', last_name: 'Last name', phone_number: 'Phone' };

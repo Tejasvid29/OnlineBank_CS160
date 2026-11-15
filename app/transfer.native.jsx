@@ -1,8 +1,7 @@
 import React from 'react';
-import { Text } from 'react-native';
 import { isActivated, money, titleCase } from '../src/theme';
 import { styles } from '../src/styles/appStyles';
-import { Action, Card, Field } from '../src/ui/primitives';
+import { Action, Card, Field, Text } from '../src/ui/primitives';
 import { Select } from '../src/ui/mobilePrimitives';
 import { useApp } from '../src/state/AppState';
 

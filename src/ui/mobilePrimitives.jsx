@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, Animated, LayoutAnimation, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { AccessibilityInfo, Animated, LayoutAnimation, Modal, Platform, Pressable, ScrollView, View } from 'react-native';
 import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, dateLabel } from '../theme';
 import { styles } from '../styles/appStyles';
-import { Card, Icon } from './primitives';
+import { Card, Icon, Text } from './primitives';
+import { TEXT_CAP, useTextScale } from './textScale';
 
 // Controls for the app/*.native.jsx screens; only native screens render them. This is not a .native file because
 // Expo Router's web build also bundles app/*.native.jsx (it routes to the non-native file, but the imports must still
@@ -35,11 +36,12 @@ function BottomSheet({ visible, onClose, title, children }) {
 // Dropdown for longer choice lists. Options are { value, label, detail? }, the same shape Choice takes.
 export function Select({ label, labelRight, value, options, onChange, placeholder = 'Choose…' }) {
   const [open, setOpen] = useState(false);
+  const { large } = useTextScale();
   const current = options.find((option) => option.value === value);
   return <View style={styles.field}>
     <FieldLabel label={label} labelRight={labelRight} />
     <Pressable accessibilityRole="button" accessibilityLabel={`${label}: ${current?.label || placeholder}`} accessibilityHint="Opens a list of choices" onPress={() => setOpen(true)} style={styles.nativeSelect}>
-      <Text style={current ? styles.nativeSelectText : styles.nativePlaceholder} numberOfLines={1}>{current?.label || placeholder}</Text>
+      <Text style={current ? styles.nativeSelectText : styles.nativePlaceholder} numberOfLines={large ? undefined : 1}>{current?.label || placeholder}</Text>
       <Icon name="chevron-down" size={18} color={colors.muted} />
     </Pressable>
     <BottomSheet visible={open} onClose={() => setOpen(false)} title={label}>
@@ -63,6 +65,7 @@ export function Select({ label, labelRight, value, options, onChange, placeholde
 export function DateField({ label, value, onChange, minimumDate, maximumDate, placeholder = 'Choose a date', clearable = false }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(new Date());
+  const { large } = useTextScale();
 
   function show() {
     let start = value ? fromYmd(value) : new Date();
@@ -80,14 +83,14 @@ export function DateField({ label, value, onChange, minimumDate, maximumDate, pl
     <View style={styles.nativeSelect}>
       <Pressable accessibilityRole="button" accessibilityLabel={`${label}: ${value ? dateLabel(value) : 'not set'}`} accessibilityHint="Opens a date picker" onPress={show} style={styles.nativeDateButton}>
         <Icon name="calendar-outline" size={18} color={colors.muted} />
-        <Text style={value ? styles.nativeSelectText : styles.nativePlaceholder} numberOfLines={1}>{value ? dateLabel(value) : placeholder}</Text>
+        <Text style={value ? styles.nativeSelectText : styles.nativePlaceholder} numberOfLines={large ? undefined : 1}>{value ? dateLabel(value) : placeholder}</Text>
       </Pressable>
       {clearable && value ? <Pressable accessibilityRole="button" accessibilityLabel={`Clear ${label}`} onPress={() => onChange('')} hitSlop={8}><Icon name="close-circle" size={18} color={colors.muted} /></Pressable> : null}
     </View>
     {Platform.OS === 'ios' && <BottomSheet visible={open} onClose={() => setOpen(false)}>
       <View style={styles.nativeSheetHeader}>
         <Pressable accessibilityRole="button" onPress={() => setOpen(false)} hitSlop={8}><Text style={styles.linkText}>Cancel</Text></Pressable>
-        <Text style={styles.rowTitle}>{label}</Text>
+        <Text style={[styles.rowTitle, { flex: 1, textAlign: 'center' }]}>{label}</Text>
         <Pressable accessibilityRole="button" onPress={() => { onChange(toYmd(draft)); setOpen(false); }} hitSlop={8}><Text style={styles.linkText}>Done</Text></Pressable>
       </View>
       <DateTimePicker value={draft} mode="date" display="inline" minimumDate={minimumDate} maximumDate={maximumDate} accentColor={colors.blue} themeVariant="light" onValueChange={(_event, date) => setDraft(date)} />
@@ -113,10 +116,12 @@ export function usePullToRefresh(onRefresh) {
 }
 
 // Segmented switch, e.g. Transfer | Bill pay. options is a list of [value, label]; style adjusts the container.
+// At large text sizes the segments wrap two to a row instead of breaking their labels.
 export function SegmentedTabs({ options, value, onChange, style }) {
-  return <View accessibilityRole="tablist" style={[styles.nativeSegment, style]}>
-    {options.map(([option, label]) => <Pressable key={option} accessibilityRole="tab" accessibilityState={{ selected: value === option }} onPress={() => onChange(option)} style={[styles.nativeSegmentItem, value === option && styles.choiceActive]}>
-      <Text style={[styles.choiceText, value === option && styles.choiceTextActive]}>{label}</Text>
+  const { large } = useTextScale();
+  return <View accessibilityRole="tablist" style={[styles.nativeSegment, style, large && styles.nativeSegmentWrap]}>
+    {options.map(([option, label]) => <Pressable key={option} accessibilityRole="tab" accessibilityState={{ selected: value === option }} onPress={() => onChange(option)} style={[styles.nativeSegmentItem, large && styles.nativeSegmentItemWrap, value === option && styles.choiceActive]}>
+      <Text style={[styles.choiceText, value === option && styles.choiceTextActive, { textAlign: 'center' }]} maxFontSizeMultiplier={TEXT_CAP.heading}>{label}</Text>
     </Pressable>)}
   </View>;
 }
@@ -132,7 +137,7 @@ export function Collapsible({ title, subtitle, defaultOpen = false, open: contro
   return <Card style={styles.nativeSection}>
     <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={toggle} style={styles.nativeSectionHeader}>
       <View style={{ flex: 1 }}>
-        <Text style={styles.nativeSectionTitle}>{title}</Text>
+        <Text style={styles.nativeSectionTitle} maxFontSizeMultiplier={TEXT_CAP.heading}>{title}</Text>
         {subtitle ? <Text style={styles.rowSub}>{subtitle}</Text> : null}
       </View>
       <Icon name={open ? 'chevron-up' : 'chevron-down'} size={20} color={colors.muted} />

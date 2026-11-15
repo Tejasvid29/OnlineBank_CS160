@@ -1,8 +1,29 @@
-import React from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import React, { createContext, useContext } from 'react';
+import { Platform, Pressable, StyleSheet, Text as NativeText, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme';
 import { styles } from '../styles/appStyles';
+import { TEXT_CAP, TextScaleContext, useTextScale } from './textScale';
+
+const InsideText = createContext(false);
+
+// React Native's Text plus the app's Larger text setting (src/ui/textScale.js). Phone screens and the components they
+// share use this one. With the setting off (always on web) it is plain Text. With it on, fontSize and lineHeight are
+// multiplied by the setting's factor. Nested Text without its own fontSize still inherits from its parent.
+// maxFontSizeMultiplier caps the combined size, the app setting and the phone's text size together.
+export function Text({ style, maxFontSizeMultiplier, ...props }) {
+  const factor = useContext(TextScaleContext);
+  const nested = useContext(InsideText);
+  if (factor === 1) return <NativeText style={style} maxFontSizeMultiplier={maxFontSizeMultiplier} {...props} />;
+  const flat = StyleSheet.flatten(style) || {};
+  const applied = maxFontSizeMultiplier ? Math.min(factor, maxFontSizeMultiplier) : factor;
+  const scaled = {};
+  if (flat.fontSize != null || !nested) scaled.fontSize = (flat.fontSize ?? 14) * applied;
+  if (flat.lineHeight != null) scaled.lineHeight = flat.lineHeight * applied;
+  return <InsideText.Provider value>
+    <NativeText {...props} style={[style, scaled]} maxFontSizeMultiplier={maxFontSizeMultiplier ? Math.max(1, maxFontSizeMultiplier / applied) : undefined} />
+  </InsideText.Provider>;
+}
 
 export function Icon({ name, size = 20, color = colors.blue }) {
   return <Ionicons name={name} size={size} color={color} />;
@@ -26,9 +47,12 @@ export function Card({ children, style }) { return <View style={[styles.card, st
 export function Divider() { return <View style={styles.divider} />; }
 
 export function Field({ label, value, onChangeText, placeholder, secureTextEntry, keyboardType, autoCapitalize, accessibilityHint }) {
+  const { factor } = useTextScale();
+  // Phones: the box grows with the text instead of clipping it at large text sizes.
+  const inputStyle = [styles.input, Platform.OS !== 'web' && styles.nativeInput, factor !== 1 && { fontSize: StyleSheet.flatten(styles.input).fontSize * factor }];
   return <View style={styles.field}>
     <Text style={styles.fieldLabel}>{label}</Text>
-    <TextInput accessibilityLabel={label} accessibilityHint={accessibilityHint} style={styles.input} value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor="#8294A2" secureTextEntry={secureTextEntry} keyboardType={keyboardType} autoCapitalize={autoCapitalize || 'none'} />
+    <TextInput accessibilityLabel={label} accessibilityHint={accessibilityHint} style={inputStyle} value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor="#8294A2" secureTextEntry={secureTextEntry} keyboardType={keyboardType} autoCapitalize={autoCapitalize || 'none'} />
   </View>;
 }
 
@@ -36,8 +60,10 @@ export function Choice({ label, value, options, onChange }) {
   return <View style={styles.field}><Text style={styles.fieldLabel}>{label}</Text><View style={styles.choiceRow}>{options.map((option) => <Pressable key={option.value} accessibilityRole="radio" accessibilityState={{ selected: value === option.value }} onPress={() => onChange(option.value)} style={[styles.choice, value === option.value && styles.choiceActive]}><Text style={[styles.choiceText, value === option.value && styles.choiceTextActive]}>{option.label}</Text></Pressable>)}</View></View>;
 }
 
+// At large text sizes the action link moves under the title instead of squeezing it.
 export function SectionHeading({ title, subtitle, action, onAction }) {
-  return <View style={styles.sectionHeading}><View style={{ flex: 1 }}><Text style={styles.sectionTitle}>{title}</Text>{subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}</View>{action && <LinkButton onPress={onAction} icon="arrow-forward">{action}</LinkButton>}</View>;
+  const { large } = useTextScale();
+  return <View style={[styles.sectionHeading, large && styles.nativeStacked]}><View style={!large && { flex: 1 }}><Text style={styles.sectionTitle} maxFontSizeMultiplier={TEXT_CAP.heading}>{title}</Text>{subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}</View>{action && <LinkButton onPress={onAction} icon="arrow-forward">{action}</LinkButton>}</View>;
 }
 
 export function Status({ children, color = colors.green }) { return <View style={[styles.status, { backgroundColor: color + '14' }]}><View style={[styles.statusDot, { backgroundColor: color }]} /><Text style={[styles.statusText, { color }]}>{children}</Text></View>; }

@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
 import { money, titleCase } from '../src/theme';
 import { styles } from '../src/styles/appStyles';
 import CustomerAuditRow from '../src/components/AuditLog';
 import ReportBuilder from '../src/components/ReportBuilder';
-import { Card, Field, SectionHeading } from '../src/ui/primitives';
+import { Card, Field, SectionHeading, Text } from '../src/ui/primitives';
+import { TEXT_CAP, useTextScale } from '../src/ui/textScale';
 import { SegmentedTabs, usePullToRefresh } from '../src/ui/mobilePrimitives';
 import MobileCheckReview from '../src/components/MobileCheckReview';
 import { useApp } from '../src/state/AppState';
@@ -17,6 +18,7 @@ const TABS = [['customers', 'Customers'], ['accounts', 'Accounts'], ['checks', '
 export default function Manager() {
   const { isManager, managerSearch, setManagerSearch, managerData, refreshCheckReviews } = useApp();
   const [tab, setTab] = useState('customers');
+  const { large } = useTextScale();
   usePullToRefresh(isManager && tab === 'checks' ? () => refreshCheckReviews() : null);
 
   if (!isManager) return <SectionHeading title="Access denied" subtitle="This page is available to authorized staff only." />;
@@ -32,9 +34,10 @@ export default function Manager() {
 
   return <>
     <SectionHeading title="Manager dashboard" subtitle="Authorized staff view" />
-    <View style={styles.nativeRow2}>
-      <Card style={[styles.nativeCard, styles.nativeCell]}><Text style={styles.miniLabel}>CUSTOMERS</Text><Text style={styles.summaryAmount}>{managerData.customers.length}</Text></Card>
-      <Card style={[styles.nativeCard, styles.nativeCell]}><Text style={styles.miniLabel}>ACCOUNTS</Text><Text style={styles.summaryAmount}>{managerData.accounts.length}</Text></Card>
+    {/* Large text: the two totals stack, so CUSTOMERS and ACCOUNTS aren't broken mid-word. */}
+    <View style={[styles.nativeRow2, large && styles.nativeRow2Large]}>
+      <Card style={[styles.nativeCard, !large && styles.nativeCell]}><Text style={styles.miniLabel}>CUSTOMERS</Text><Text style={styles.summaryAmount} maxFontSizeMultiplier={TEXT_CAP.display}>{managerData.customers.length}</Text></Card>
+      <Card style={[styles.nativeCard, !large && styles.nativeCell]}><Text style={styles.miniLabel}>ACCOUNTS</Text><Text style={styles.summaryAmount} maxFontSizeMultiplier={TEXT_CAP.display}>{managerData.accounts.length}</Text></Card>
     </View>
     <SegmentedTabs options={TABS} value={tab} onChange={setTab} style={styles.nativeSegmentInline} />
     <View style={tab !== 'customers' && styles.nativeHidden}>

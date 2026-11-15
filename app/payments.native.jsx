@@ -1,8 +1,9 @@
 import React from 'react';
-import { Alert, Text, View } from 'react-native';
+import { Alert, View } from 'react-native';
 import { dateLabel, isActivated, money, titleCase } from '../src/theme';
 import { styles } from '../src/styles/appStyles';
-import { Action, Card, Choice, Field, Icon, LinkButton, SectionHeading } from '../src/ui/primitives';
+import { Action, Card, Choice, Field, Icon, LinkButton, SectionHeading, Text } from '../src/ui/primitives';
+import { useTextScale } from '../src/ui/textScale';
 import { DateField, Select } from '../src/ui/mobilePrimitives';
 import { useApp } from '../src/state/AppState';
 
@@ -12,6 +13,7 @@ export default function Payments() {
     payee, setPayee, paymentAccount, setPaymentAccount, accounts, paymentAmount, setPaymentAmount,
     paymentDate, setPaymentDate, frequency, setFrequency, submitPayment, busy, payments, cancelPayment, navigate,
   } = useApp();
+  const { large } = useTextScale();
   const options = accounts.filter(isActivated).map((item) => ({ value: item.id, label: `${titleCase(item.account_type)} ${item.account_number}`, detail: `Balance ${money(item.balance)}` }));
   const fromId = paymentAccount || options[0]?.value;
   const source = accounts.find((item) => item.id === fromId);
@@ -41,11 +43,15 @@ export default function Payments() {
 
     <SectionHeading title="Upcoming payments" />
     <Card style={styles.nativeListCard}>
-      {payments.length ? payments.map((payment) => <View key={payment.id} style={styles.paymentRow}>
-        <View style={styles.paymentIcon}><Icon name="receipt-outline" size={19} /></View>
-        <View style={{ flex: 1 }}><Text style={styles.rowTitle}>{payment.recipient}</Text><Text style={styles.rowSub}>{dateLabel(payment.next_payment_date)} · {payment.frequency}</Text></View>
-        <View style={{ alignItems: 'flex-end' }}><Text style={styles.transactionAmount}>{money(payment.amount)}</Text><LinkButton onPress={() => confirmCancel(payment)}>Cancel</LinkButton></View>
-      </View>) : <Text style={styles.emptyText}>No payments scheduled.</Text>}
+      {payments.length ? payments.map((payment) => {
+        // Large text: amount and Cancel go under the payee instead of beside it.
+        const side = <View style={{ alignItems: large ? 'flex-start' : 'flex-end' }}><Text style={[styles.transactionAmount, large && styles.nativeAmountBelow]}>{money(payment.amount)}</Text><LinkButton onPress={() => confirmCancel(payment)}>Cancel</LinkButton></View>;
+        return <View key={payment.id} style={styles.paymentRow}>
+          <View style={styles.paymentIcon}><Icon name="receipt-outline" size={19} /></View>
+          <View style={{ flex: 1 }}><Text style={styles.rowTitle}>{payment.recipient}</Text><Text style={styles.rowSub}>{dateLabel(payment.next_payment_date)} · {payment.frequency}</Text>{large && side}</View>
+          {!large && side}
+        </View>;
+      }) : <Text style={styles.emptyText}>No payments scheduled.</Text>}
     </Card>
   </>;
 }

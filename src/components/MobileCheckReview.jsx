@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Image, Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { Alert, Image, Modal, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { apiConfigured } from '../services/api';
 import { colors, dateLabel, money, titleCase } from '../theme';
 import { styles } from '../styles/appStyles';
-import { Action, Card, Field, Icon, LinkButton, Notice, Status } from '../ui/primitives';
+import { Action, Card, Field, Icon, LinkButton, Notice, Status, Text } from '../ui/primitives';
+import { TEXT_CAP, useTextScale } from '../ui/textScale';
 import { Select } from '../ui/mobilePrimitives';
 import { useApp } from '../state/AppState';
 
@@ -18,10 +19,12 @@ const customerName = (deposit) => `${deposit.customer?.first_name || ''} ${depos
 const accountLabel = (deposit) => `${titleCase(deposit.account?.account_type)} ${deposit.account?.account_number || ''}`.trim();
 const when = (value) => `${dateLabel(value)}, ${new Date(value).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
 
+// Large text: label above value, so long values (email, account) get the full width.
 function DetailRow({ label, value }) {
-  return <View style={styles.nativeReviewRow}>
+  const { large } = useTextScale();
+  return <View style={[styles.nativeReviewRow, large && styles.nativeStacked]}>
     <Text style={styles.rowSub}>{label}</Text>
-    <Text style={[styles.rowTitle, styles.nativeReviewValue]}>{value}</Text>
+    <Text style={[styles.rowTitle, styles.nativeReviewValue, large && styles.nativeReviewValueLarge]}>{value}</Text>
   </View>;
 }
 
@@ -47,7 +50,7 @@ function CheckPhoto({ label, uri, onFail, onEnlarge }) {
 function EnlargedPhoto({ photo, onClose }) {
   return <View style={styles.nativeZoom}>
     <View style={styles.nativeZoomHeader}>
-      <Text style={styles.nativeZoomTitle}>{photo.label} of check</Text>
+      <Text style={[styles.nativeZoomTitle, { flex: 1 }]} maxFontSizeMultiplier={TEXT_CAP.heading}>{photo.label} of check</Text>
       <Pressable accessibilityRole="button" accessibilityLabel="Close enlarged image" onPress={onClose} hitSlop={10}><Icon name="close" size={28} color={colors.white} /></Pressable>
     </View>
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1 }} maximumZoomScale={4} minimumZoomScale={1} centerContent>
@@ -62,6 +65,7 @@ function DetailSheet({ deposit }) {
   const [photo, setPhoto] = useState(null);
   const [expired, setExpired] = useState(false);
   const [failed, setFailed] = useState(false);
+  const { large } = useTextScale();
   const pending = deposit.status === 'pending';
   const own = apiConfigured && deposit.customer_id === profile.id;
   const close = () => openCheckReview(null);
@@ -86,7 +90,7 @@ function DetailSheet({ deposit }) {
 
   return <SafeAreaView style={styles.nativeModal} edges={['top', 'bottom']}>
     <View style={styles.notificationHeading}>
-      <Text style={[styles.cardTitle, { marginBottom: 0 }]}>Check deposit</Text>
+      <Text style={[styles.cardTitle, { marginBottom: 0, flex: 1 }]} maxFontSizeMultiplier={TEXT_CAP.heading}>Check deposit</Text>
       <Pressable accessibilityRole="button" accessibilityLabel="Close check details" onPress={close} hitSlop={8}><Icon name="close-outline" size={26} color={colors.ink} /></Pressable>
     </View>
     {/* iOS moves the content above the keyboard itself; Android resizes the modal window. */}
@@ -94,7 +98,7 @@ function DetailSheet({ deposit }) {
       {/* The toast sits under this modal, so messages show here while it is open. */}
       <Notice text={notice} kind={noticeKind} />
       <View style={styles.nativeReviewHeading}>
-        <Text style={styles.nativeReviewAmount}>{money(deposit.amount)}</Text>
+        <Text style={styles.nativeReviewAmount} maxFontSizeMultiplier={TEXT_CAP.display}>{money(deposit.amount)}</Text>
         <Status color={STATUS_COLORS[deposit.status] || colors.blue}>{deposit.status}</Status>
       </View>
       <Card style={styles.nativeListCard}>
@@ -107,7 +111,7 @@ function DetailSheet({ deposit }) {
         {deposit.review_notes ? <DetailRow label="Notes" value={deposit.review_notes} /> : null}
       </Card>
 
-      <View style={styles.nativeRow2}>
+      <View style={[styles.nativeRow2, large && styles.nativeRow2Large]}>
         <CheckPhoto label="Front" uri={deposit.front_image_url} onFail={() => setFailed(true)} onEnlarge={setPhoto} />
         <CheckPhoto label="Back" uri={deposit.back_image_url} onFail={() => setFailed(true)} onEnlarge={setPhoto} />
       </View>
@@ -135,6 +139,7 @@ export default function MobileCheckReview() {
   const { checkReviewStatus, checkReviewList, checkReviewDetail, refreshCheckReviews, openCheckReview } = useApp();
   const openId = checkReviewDetail?.id;
   const opened = openId ? { ...checkReviewList.find((item) => item.id === openId), ...checkReviewDetail } : null;
+  const { large } = useTextScale();
   const empty = checkReviewStatus === 'pending' ? 'No checks are waiting for review.' : `No ${checkReviewStatus === 'all' ? '' : `${checkReviewStatus} `}check deposits.`;
 
   return <>
@@ -149,14 +154,19 @@ export default function MobileCheckReview() {
         onPress={() => openCheckReview(deposit.id)}
         style={({ pressed }) => [styles.nativeCheckRow, pressed && styles.pressed]}
       >
+        {/* Large text: names and accounts wrap instead of being cut off, and the amount and status go underneath. */}
         <View style={styles.nativeCell}>
-          <Text style={styles.rowTitle} numberOfLines={1}>{customerName(deposit)}</Text>
-          <Text style={styles.rowSub} numberOfLines={1}>{accountLabel(deposit)} · {dateLabel(deposit.created_at)}</Text>
+          <Text style={styles.rowTitle} numberOfLines={large ? undefined : 1}>{customerName(deposit)}</Text>
+          <Text style={styles.rowSub} numberOfLines={large ? undefined : 1}>{accountLabel(deposit)} · {dateLabel(deposit.created_at)}</Text>
+          {large && <View style={[styles.nativeStacked, { marginTop: 6 }]}>
+            <Text style={[styles.transactionAmount, { marginLeft: 0 }]}>{money(deposit.amount)}</Text>
+            <Status color={STATUS_COLORS[deposit.status] || colors.blue}>{deposit.status}</Status>
+          </View>}
         </View>
-        <View style={styles.nativeCheckRowRight}>
+        {!large && <View style={styles.nativeCheckRowRight}>
           <Text style={styles.transactionAmount}>{money(deposit.amount)}</Text>
           <Status color={STATUS_COLORS[deposit.status] || colors.blue}>{deposit.status}</Status>
-        </View>
+        </View>}
       </Pressable>) : <Text style={styles.emptyText}>{empty}</Text>}
     </Card>
     <Modal visible={Boolean(opened)} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => openCheckReview(null)}>

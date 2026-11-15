@@ -5,6 +5,8 @@ import { apiConfigured, bankingApi, clearSession, hasSession, onSessionExpired, 
 import { buildReport, demoAccounts, demoAtms, demoManagerData, demoNotifications, demoPayments, demoProfile, demoTransactions } from '../data/demo';
 import { isActivated, money, titleCase } from '../theme';
 import { ATM_DAILY_LIMIT, ATM_MAX_DEPOSIT, ATM_MAX_WITHDRAWAL } from '../data/atmLimits';
+import { readLargerText, writeLargerText } from '../services/preferences';
+import { TextScaleContext, largerTextFactor } from '../ui/textScale';
 
 const isWeb = Platform.OS === 'web';
 // Local date as YYYY-MM-DD, computed when needed so an app left open past midnight stays correct.
@@ -43,8 +45,10 @@ export function useApp() {
 
 export function AppProvider({ children }) {
   const router = useRouter();
-  const { width } = useWindowDimensions();
+  const { width, fontScale } = useWindowDimensions();
   const compact = width < 860;
+  // Profile's Larger text setting (phones only; web uses browser zoom). A device setting, so sign-out keeps it.
+  const [largerText, setLargerTextState] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
   const [authView, setAuthView] = useState('login');
   const [email, setEmail] = useState('');
@@ -187,6 +191,13 @@ export function AppProvider({ children }) {
       try { await startSession(await bankingApi.refresh(token)); } catch { clearSession(); }
     })().finally(() => setRestoring(false));
   }, []);
+
+  useEffect(() => { if (!isWeb) readLargerText().then(setLargerTextState); }, []);
+
+  function setLargerText(enabled) {
+    setLargerTextState(enabled);
+    void writeLargerText(enabled);
+  }
 
   // api() calls this when a 401 survives a refresh attempt.
   useEffect(() => {
@@ -609,7 +620,10 @@ export function AppProvider({ children }) {
     closeAccount, findAtms, findAtmsNear, atmTransaction, atmWithdrawalAllowance, depositError, submitDeposit, saveProfile, markRead, markAllRead, openManager,
     reportResult, runReport, auditLog, loadAuditLog,
     checkReviewStatus: checkReview.status, checkReviewList, checkReviewDetail, refreshCheckReviews, openCheckReview, reviewCheckDeposit,
+    largerText, setLargerText,
   };
 
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+  return <AppContext.Provider value={value}>
+    <TextScaleContext.Provider value={isWeb ? 1 : largerTextFactor(largerText, fontScale || 1)}>{children}</TextScaleContext.Provider>
+  </AppContext.Provider>;
 }
