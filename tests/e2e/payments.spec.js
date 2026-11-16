@@ -27,7 +27,8 @@ test('reject payment without a payee', async ({ page }) => {
   await expect(page.getByText('Schedule a payment', { exact: true })).toBeVisible();
   await page.getByLabel('Payee', { exact: true }).fill('');
   await page.getByLabel('Amount', { exact: true }).fill('5.00');
-  await page.getByRole('button', { name: /Schedule payment/ }).click();
+  await page.getByRole('radio', { name: 'Once', exact: true }).click();
+  await page.getByRole('button', { name: /Pay now/ }).click();
 
   await expect(page.getByText(
     'Enter a payee name.',
@@ -41,7 +42,8 @@ test('reject bill payment with invalid amount', async ({ page }) => {
   await expect(page.getByText('Schedule a payment', { exact: true })).toBeVisible();
   await page.getByLabel('Payee', { exact: true }).fill('E2E Test Payee');
   await page.getByLabel('Amount', { exact: true }).fill('0.00');
-  await page.getByRole('button', { name: /Schedule payment/ }).click();
+  await page.getByRole('radio', { name: 'Once', exact: true }).click();
+  await page.getByRole('button', { name: /Pay now/ }).click();
 
   await expect(page.getByText(
     'Enter an amount greater than $0 with up to two decimal places.',
@@ -55,7 +57,8 @@ test('reject bill payment with past date', async ({ page }) => {
   await expect(page.getByText('Schedule a payment', { exact: true })).toBeVisible();
   await page.getByLabel('Payee', { exact: true }).fill('E2E Test Payee');
   await page.getByLabel('Amount', { exact: true }).fill('5.00');
-  await page.getByLabel('Payment date', { exact: true }).fill('2020-01-01');
+  await page.getByRole('radio', { name: 'Monthly', exact: true }).click();
+  await page.getByLabel('Date of first payment', { exact: true }).fill('2020-01-01');
   await page.getByRole('button', { name: /Schedule payment/ }).click();
 
   await expect(page.getByText(
@@ -74,14 +77,14 @@ test('successfully schedules a bill payment', async ({ page, request }) => {
   const paymentDate = futureDate.toISOString().slice(0, 10);
   await page.getByLabel('Payee', { exact: true }).fill(payee);
   await page.getByLabel('Amount', { exact: true }).fill('5.00');
-  await page.getByLabel('Payment date', { exact: true }).fill(paymentDate);
-  await page.getByRole('radio', { name: 'Once', exact: true }).click();
-
+  await page.getByRole('radio', { name: 'Monthly', exact: true }).click();
+  await page.getByLabel('Date of first payment', { exact: true }).fill(paymentDate);
   const paymentPromise = page.waitForResponse(response =>
     response.url().endsWith('/bill-payments') &&
     response.request().method() === 'POST'
   );
   await page.getByRole('button', { name: /Schedule payment/ }).click();
+
   const paymentResponse = await paymentPromise;
   expect(paymentResponse.status()).toBe(201);
   const { payment } = await paymentResponse.json();
@@ -114,8 +117,8 @@ test('successfully cancels a scheduled payment', async ({ page, request }) => {
   const paymentDate = futureDate.toISOString().slice(0, 10);
   await page.getByLabel('Payee', { exact: true }).fill(payee);
   await page.getByLabel('Amount', { exact: true }).fill('5.00');
-  await page.getByLabel('Payment date', { exact: true }).fill(paymentDate);
-  await page.getByRole('radio', { name: 'Once', exact: true }).click();
+  await page.getByRole('radio', { name: 'Monthly', exact: true }).click();
+  await page.getByLabel('Date of first payment', { exact: true }).fill(paymentDate);
 
   const paymentPromise = page.waitForResponse(response =>
     response.url().endsWith('/bill-payments') &&

@@ -46,5 +46,5 @@ test('successfully displays user profile information', async ({ page, request })
   await expect(page.getByLabel('Last name', {exact: true})).toHaveValue(profile.last_name);
   await expect(page.getByLabel('Phone number', {exact: true})).toHaveValue(profile.phone || '');
   await expect(page.getByText(profile.email, {exact: true}).first()).toBeVisible();
-  await expect(page.getByRole('button', {name: /Save changes/})).toBeDisabled();
+  await expect(page.getByRole('button', {name: /Save changes/})).toBeEnabled();
 });

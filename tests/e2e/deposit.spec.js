@@ -54,18 +54,18 @@ test('successful cash deposit', async ({ page, request }) => {
   const { access_token, accountId, originalBalance } =
   await getTestAccount(page, request);
   const depositResponse = await request.post(
-  `http://127.0.0.1:8000/accounts/${accountId}/deposits`,
+  'http://127.0.0.1:8000/atm/deposits',
   {
     headers: {
-      Authorization: `Bearer ${access_token}`
+      Authorization: 'Bearer ' + access_token
     },
     data: {
+      account_id: accountId,
       amount: 10,
-      description: 'E2E deposit test'
-     }
-   }
- );
-
+      atm_name: 'E2E deposit test'
+    }
+  }
+);
 expect(depositResponse.status()).toBe(201);
   const updatedResponse = await request.get(
   `http://127.0.0.1:8000/accounts/${accountId}`,
@@ -88,17 +88,18 @@ test('reject zero deposit', async ({ page, request }) => {
  const { access_token, accountId, originalBalance } =
  await getTestAccount(page, request);
  const zeroDepositResponse = await request.post(
-   `http://127.0.0.1:8000/accounts/${accountId}/deposits`,
-   {
-     headers: {
-       Authorization: `Bearer ${access_token}`
-     },
-     data: {
-       amount: 0,
-       description: 'Invalid deposit test'
-     }
-   }
- );
+  'http://127.0.0.1:8000/atm/deposits',
+  {
+    headers: {
+      Authorization: 'Bearer ' + access_token
+    },
+    data: {
+      account_id: accountId,
+      amount: 0,
+      atm_name: 'E2E deposit test'
+    }
+  }
+);
  expect(zeroDepositResponse.status()).toBe(422);
  console.log('Zero deposit status:', zeroDepositResponse.status());
  const balanceResponse = await request.get(
@@ -121,18 +122,19 @@ test('reject zero deposit', async ({ page, request }) => {
 test('reject negative deposit', async ({ page, request }) => {
   const { access_token, accountId, originalBalance } =
   await getTestAccount(page, request);
-  const negativeDepositResponse = await request.post(
-  `http://127.0.0.1:8000/accounts/${accountId}/deposits`,
+ const negativeDepositResponse = await request.post(
+  'http://127.0.0.1:8000/atm/deposits',
   {
-      headers: {
-        Authorization: `Bearer ${access_token}`
-      },
-      data: {
-        amount: -10,
-        description: 'Negative deposit test'
-      }
+    headers: {
+      Authorization: 'Bearer ' + access_token
+    },
+    data: {
+      account_id: accountId,
+      amount: -10,
+      atm_name: 'E2E deposit test'
     }
-  );
+  }
+);
 expect(negativeDepositResponse.status()).toBe(422);
 console.log('Negative deposit status:', negativeDepositResponse.status());
 //double checking balance did not change
@@ -164,6 +166,7 @@ const unauthorizedResponse = await request.post(
   `http://127.0.0.1:8000/accounts/${accountId}/deposits`,
   {
     data: {
+      account_id: accountId,
       amount: 10,
       description: 'Unauthorized deposit test'
     }
@@ -208,12 +211,13 @@ test('reject deposit into another users account', async ({ page, request, browse
     console.log('User B account found:', Boolean(accountBId));
     console.log('User B original balance:', balanceB);
     const crossAccountResponse = await request.post(
-  `http://127.0.0.1:8000/accounts/${accountBId}/deposits`,
+  `http://127.0.0.1:8000/atm/deposits`,
    {
      headers: {
        Authorization: `Bearer ${tokenA}`
      },
      data: {
+       account_id: accountBId,
        amount: 10,
        description: 'Cross-account deposit test'
      }
