@@ -93,6 +93,14 @@ Before API-mode check deposits, the Supabase project needs `public.users` and `p
 
 `POST /deposits` accepts multipart `account_id`, `amount`, `front_image`, and `back_image`. It validates account ownership and the photos, strips image metadata, stores them privately, and records a pending check deposit and pending transaction. `GET /deposits` returns the customer's recent deposits without image paths. Repeating the same photos for the same pending deposit returns its existing record. **Submission never increases the balance.** OCR, check verification, reviewer approval, and fund availability still need to be built before any deposit can be credited.
 
+## PLEASE READ (THIS IS FOR ANDROID SIMULATOR WITH ANDROID SIMULATOR)
+
+When you initiate the mobile emulator on android studio, you will get an error when trying the app tries to interact with the backend because android simulator doesn't look at the same localhost url as a pc does. So for it to work, after you initiate the android simulator and its running, please enter in this command in the powershell 
+
+```bash
+& "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" reverse tcp:8000 tcp:8000
+```
+
 ## Authentication and authorization
 
 - Supabase Auth issues a JWT access token and a refresh token. The frontend sends `Authorization: Bearer <access token>`; the backend validates it with Supabase on every request, so logout takes effect immediately.
