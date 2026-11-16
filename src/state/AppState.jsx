@@ -108,7 +108,10 @@ export function AppProvider({ children }) {
   const visibleTransactions = useMemo(() => transactions.filter((item) => {
     const matchAccount = selectedAccount === 'all' || item.account_id === selectedAccount;
     const matchQuery = item.description.toLowerCase().includes(transactionSearch.toLowerCase());
-    const matchType = transactionType === 'All' || item.transaction_type === transactionType;
+    // The backend stores bill payments as withdrawals described "Bill payment: <payee>".
+    const isBill = item.transaction_type === 'Bill payment' || item.description.startsWith('Bill payment:');
+    const matchType = transactionType === 'All'
+      || (transactionType === 'Bill payment' ? isBill : item.transaction_type === transactionType && !isBill);
     const matchStart = !transactionStart || item.created_at.slice(0, 10) >= transactionStart;
     const matchEnd = !transactionEnd || item.created_at.slice(0, 10) <= transactionEnd;
     return matchAccount && matchQuery && matchType && matchStart && matchEnd;
