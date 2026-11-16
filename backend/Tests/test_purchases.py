@@ -19,7 +19,7 @@ BODY = {"account_number": NUMBER, "merchant": "Coffee Shop", "amount": 4.5}
 
 
 def _txn(amount: float) -> dict:
-    return {
+    return {  # as stored: a withdrawal described "Purchase: ..."
         "id": "t1", "account_id": ACCOUNT_ID, "customer_id": USER_ID, "transaction_type": "withdrawal",
         "amount": amount, "status": "completed", "description": "Purchase: Coffee Shop", "created_at": "2026-11-09T12:00:00+00:00",
     }
@@ -46,6 +46,7 @@ def test_purchase_charges_the_account_with_that_number(client, db):
     response = client.post("/purchases", json=BODY)  # no Authorization header
     assert response.status_code == 201
     assert response.json()["transaction"]["amount"] == -4.5
+    assert response.json()["transaction"]["transaction_type"] == "Card purchase"
     name, params = db.rpc.call_args.args
     assert name == "post_purchase"
     assert params == {

@@ -67,10 +67,12 @@ class SendMoneyRequest(BaseModel):
 
 def _out(row: dict) -> dict:
     # The UI shows these as labels and expects a numeric amount.
+    # Purchases are stored as withdrawals (the table only allows deposit/withdrawal/transfer) described "Purchase: ...".
+    card_purchase = row["transaction_type"] == "withdrawal" and row.get("description", "").startswith("Purchase:")
     return {
         **row,
         "amount": float(row["amount"]),
-        "transaction_type": row["transaction_type"].capitalize(),
+        "transaction_type": "Card purchase" if card_purchase else row["transaction_type"].capitalize(),
         "status": row["status"].capitalize(),
     }
 
