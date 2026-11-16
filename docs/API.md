@@ -158,6 +158,19 @@ it returns 409.
 
 ATM search needs `GEOAPIFY_API_KEY` on the server; without it, it returns 503.
 
+### debit-card
+
+| Method | Path | Summary |
+|---|---|---|
+| POST | `/card/withdrawals` | Withdraw by checking account number, no sign-in: `{"account_number", "amount", "location"?, "reference"?}` |
+| POST | `/card/deposits` | Deposit by checking account number, same body |
+
+The 12-digit account number acts like a debit card number. A withdrawal can't exceed the balance (409
+"Insufficient funds."), so the account never goes negative. Card withdrawals are also limited to $1,000 per account in
+any rolling 24 hours (409); deposits have no limit. Errors: 404 if no open checking account has that number (also
+for savings and closed accounts), 422 for a bad number or amount. Rows are described `Card withdrawal: <location>` /
+`Card deposit: <location>`. Requires `backend/sql/card_transactions.sql`. Demo only: anyone with the number can use it.
+
 ### purchases
 
 | Method | Path | Summary |

@@ -11,6 +11,7 @@ import accounts
 import atm
 import auth
 import bill_payments
+import card
 import deposits
 import purchases
 import statements
@@ -23,6 +24,7 @@ PUBLIC = {
     ("post", "/auth/register"), ("post", "/auth/login"), ("post", "/auth/refresh"), ("post", "/auth/forgot-password"),
     ("post", "/auth/reset-password"), ("get", "/health"), ("get", "/health/db"),
     ("post", "/purchases"),  # charged by account number, like a card number
+    ("post", "/card/withdrawals"), ("post", "/card/deposits"),
 }
 
 
@@ -71,7 +73,7 @@ def test_admin_routes_document_403(spec):
     auth.RegisterRequest, auth.UpdateProfileRequest, auth.LoginRequest, auth.RefreshRequest, auth.ForgotPasswordRequest,
     auth.ResetPasswordRequest, accounts.OpenAccountRequest, transactions.AccountTransactionRequest,
     transactions.TransferRequest, transactions.SendMoneyRequest, bill_payments.SchedulePaymentRequest,
-    atm.AtmWithdrawalRequest, atm.AtmDepositRequest, deposits.RejectRequest, statements.GenerateStatementRequest, purchases.PurchaseRequest,
+    atm.AtmWithdrawalRequest, atm.AtmDepositRequest, deposits.RejectRequest, statements.GenerateStatementRequest, purchases.PurchaseRequest, card.CardRequest,
 ])
 def test_request_examples_are_valid(model: type[BaseModel]):
     examples = model.model_json_schema()["examples"]
