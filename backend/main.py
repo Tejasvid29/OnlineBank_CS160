@@ -10,6 +10,7 @@ import api_docs
 from accounts import router as accounts_router
 from api_docs import ADMIN, errors
 from atm import router as atm_router
+from purchases import router as purchases_router
 from atms import router as atms_router
 from auth import require_role, router as auth_router
 from bill_payments import router as bill_payments_router
@@ -60,6 +61,7 @@ app.include_router(bill_payments_router)
 app.include_router(deposits_router)
 app.include_router(deposit_review_router)
 app.include_router(atm_router)
+app.include_router(purchases_router)
 app.include_router(atms_router)
 app.include_router(reports_router)
 app.include_router(statements_router)

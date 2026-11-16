@@ -31,6 +31,7 @@ TAGS = [
     {"name": "bill-payments", "description": "Pay a bill now, or schedule daily, weekly or monthly payments."},
     {"name": "check-deposits", "description": "Mobile check deposits, and their review by a manager. A check is credited only when approved."},
     {"name": "atm", "description": "ATM cash withdrawals and deposits, and finding nearby ATMs."},
+    {"name": "purchases", "description": "Let an app charge your checking account for a purchase."},
     {"name": "statements", "description": "Month-to-date and month-end statements."},
     {"name": "notifications", "description": "In-app notifications (the bell) for money movement and account changes."},
     {"name": "manager", "description": "Admin-only views of all customers and accounts, audit logs and reports."},

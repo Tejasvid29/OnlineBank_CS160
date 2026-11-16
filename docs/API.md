@@ -158,6 +158,18 @@ it returns 409.
 
 ATM search needs `GEOAPIFY_API_KEY` on the server; without it, it returns 503.
 
+### purchases
+
+| Method | Path | Summary |
+|---|---|---|
+| POST | `/purchases` | Purchase by checking account number, no sign-in: `{"account_number", "merchant", "amount", "reference"?}`, up to $2,500 each |
+
+The 12-digit account number acts like a debit card number. The result is a completed withdrawal described
+`Purchase: <merchant> - <reference>`. Errors: 404 if no open checking account has that number (also for savings and
+closed accounts), 409 for insufficient funds, 422 for a bad number or amount. Requires `backend/sql/purchases.sql`.
+Demo only: anyone with the number can charge the account, and there are no merchant keys, expiry/CVV, idempotency or
+rate limits.
+
 ### statements
 
 | Method | Path | Summary |
