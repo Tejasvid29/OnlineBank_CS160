@@ -1,25 +1,32 @@
 import logging
-from typing import Annotated
+import math
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from fastapi import APIRouter, Depends, HTTPException, Request, Security, status
+from fastapi.security import HTTPBearer
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from supabase import Client, ClientOptions, create_client
 from supabase_auth.errors import AuthApiError
 
 import audit
+from api_docs import BEARER_DESCRIPTION, SIGNED_IN, errors
 from audit import record_event
 from config import settings
 from db import get_supabase
+from mailer import send_email
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-PROFILE_COLUMNS = "id, first_name, last_name, email, phone_number, zip_code, role, status, created_at"
-GMAIL_ONLY_MESSAGE = (
-    "Due to the limitation of RESEND SMTP server, we're only allowing @gmail email addresses since RESEND can only "
-    "send emails to the same domain as the email I registered with to get the API Key, thanks."
+PROFILE_COLUMNS = (
+    "id, first_name, last_name, email, phone_number, address_line1, address_line2, city, state, zip_code, role, status, created_at"
 )
+# Mailing address columns. zip_code doubles as the postal code (registration collects it on its own).
+ADDRESS_COLUMNS = ("address_line1", "address_line2", "city", "state", "zip_code")
+INCOMPLETE_ADDRESS = "Enter the street address, city, state and ZIP code, or clear the address."
 INVALID_LOGIN = "Invalid email or password."
+MAX_FAILED_LOGINS = 3
+LOCKOUT_SECONDS = 5 * 60
 
 
 class RegisterRequest(BaseModel):
@@ -30,37 +37,53 @@ class RegisterRequest(BaseModel):
     zip_code: str | None = Field(default=None, pattern=r"^[0-9]{5}$")
     password: str = Field(min_length=8, max_length=72)
 
-    @field_validator("email")
-    @classmethod
-    def gmail_only(cls, value: str) -> str:
-        # Reset emails go out through Gmail SMTP, so only Gmail addresses can be registered.
-        if not value.lower().endswith("@gmail.com"):
-            raise ValueError(GMAIL_ONLY_MESSAGE)
-        return value
+    model_config = ConfigDict(json_schema_extra={"examples": [{
+        "first_name": "Ada", "last_name": "Lopez", "email": "ada@example.com", "phone": "555-123-4567",
+        "zip_code": "94105", "password": "correct-horse-1",
+    }]})
 
 
 class UpdateProfileRequest(BaseModel):
     first_name: str | None = Field(default=None, min_length=1, max_length=60)
     last_name: str | None = Field(default=None, min_length=1, max_length=60)
     phone: str | None = Field(default=None, pattern=r"^\+?[0-9 ()\-]{7,20}$")
+    # Mailing address. Send "" or null to clear a field. Saved only if the result is complete or empty (see _address_error).
+    address_line1: str | None = Field(default=None, max_length=100, description="Street address.")
+    address_line2: str | None = Field(default=None, max_length=100, description="Apartment, suite or unit (optional).")
+    city: str | None = Field(default=None, max_length=60)
+    state: str | None = Field(default=None, pattern=r"^\s*([A-Za-z]{2})?\s*$", description="Two-letter state code, e.g. CA.")
+    zip_code: str | None = Field(default=None, pattern=r"^\s*([0-9]{5})?\s*$", description="5-digit ZIP code.")
+
+    model_config = ConfigDict(json_schema_extra={"examples": [
+        {"last_name": "Lopez-Park", "phone": "555-987-6543"},
+        {"address_line1": "1 Washington Sq", "address_line2": "Apt 4", "city": "San Jose", "state": "CA", "zip_code": "95192"},
+    ]})
 
 
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1, max_length=72)
 
+    model_config = ConfigDict(json_schema_extra={"examples": [{"email": "ada@example.com", "password": "correct-horse-1"}]})
+
 
 class RefreshRequest(BaseModel):
     refresh_token: str
+
+    model_config = ConfigDict(json_schema_extra={"examples": [{"refresh_token": "v1.MbRcGqS3f1nE"}]})
 
 
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 
+    model_config = ConfigDict(json_schema_extra={"examples": [{"email": "ada@example.com"}]})
+
 
 class ResetPasswordRequest(BaseModel):
-    access_token: str
+    access_token: str = Field(description="The access_token from the reset link.")
     password: str = Field(min_length=8, max_length=72)
+
+    model_config = ConfigDict(json_schema_extra={"examples": [{"access_token": "eyJhbGciOiJIUzI1NiIs...", "password": "new-correct-horse-2"}]})
 
 
 def _profile_out(row: dict) -> dict:
@@ -77,6 +100,25 @@ def _load_profile(db: Client, user_id: str) -> dict:
     return rows[0]
 
 
+def _clean(column: str, value):
+    """Trim text; optional address fields store blanks as null; state is uppercase."""
+    if not isinstance(value, str):
+        return value
+    value = value.strip()
+    if column in ADDRESS_COLUMNS and not value:
+        return None
+    return value.upper() if column == "state" else value
+
+
+def _address_error(profile: dict) -> str | None:
+    """An address must be complete (street, city, state, ZIP) or empty. A ZIP code alone is allowed."""
+    street_city_state = [profile.get(column) for column in ("address_line1", "address_line2", "city", "state")]
+    if not any(street_city_state):
+        return None
+    required = ("address_line1", "city", "state", "zip_code")
+    return None if all(profile.get(column) for column in required) else INCOMPLETE_ADDRESS
+
+
 def _session_out(session, profile: dict) -> dict:
     return {
         "access_token": session.access_token,
@@ -86,8 +128,78 @@ def _session_out(session, profile: dict) -> dict:
     }
 
 
-def _bearer_token(authorization: Annotated[str | None, Header()] = None) -> str:
-    scheme, _, token = (authorization or "").partition(" ")
+def _find_login_account(db: Client, email: str) -> dict | None:
+    rows = (
+        db.table("users").select("id, email, failed_login_attempts, locked_until").eq("email", email.lower()).limit(1).execute().data
+    )
+    return rows[0] if rows else None
+
+
+def _minutes_left(locked_until: str) -> int:
+    remaining = datetime.fromisoformat(locked_until) - datetime.now(timezone.utc)
+    return max(1, math.ceil(remaining.total_seconds() / 60))
+
+
+def _locked_out(locked_until: str) -> HTTPException:
+    minutes = _minutes_left(locked_until)
+    return HTTPException(
+        status.HTTP_429_TOO_MANY_REQUESTS,
+        f"Too many failed sign-in attempts. This account is locked. Try again in {minutes} minute{'s' if minutes != 1 else ''}.",
+        headers={"Retry-After": str(minutes * 60)},
+    )
+
+
+def _reject_if_locked(account: dict) -> None:
+    locked_until = account.get("locked_until")
+    if locked_until and datetime.fromisoformat(locked_until) > datetime.now(timezone.utc):
+        raise _locked_out(locked_until)
+
+
+def _register_failed_login(db: Client, account: dict | None, email: str) -> None:
+    """Count a failed attempt; on the MAX_FAILED_LOGINS-th, lock the account, email the owner and log it."""
+    if not account:
+        return  # Unknown email: nothing to lock, and the response stays identical.
+    locked_until = db.rpc(
+        "record_failed_login",
+        {"p_user_id": account["id"], "p_max_attempts": MAX_FAILED_LOGINS, "p_lock_seconds": LOCKOUT_SECONDS},
+    ).execute().data
+    if not locked_until:
+        return
+    record_event(db, account["id"], audit.ACCOUNT_LOCKED, {"locked_until": locked_until, "failed_attempts": MAX_FAILED_LOGINS})
+    reset_link = _recovery_link(db, email)
+    send_email(
+        email,
+        "Your OnlineBank account has been locked",
+        f"Your account was locked for {LOCKOUT_SECONDS // 60} minutes after {MAX_FAILED_LOGINS} failed sign-in attempts.\n\n"
+        + (
+            f"If this was you, you can reset your password now (this also unlocks your account):\n{reset_link}\n\n"
+            if reset_link
+            else "If this was you, you can try again after that, or use \"Forgot password\" on the sign-in page.\n\n"
+        )
+        + "If this wasn't you, reset your password and contact your banking team.",
+    )
+    raise _locked_out(locked_until)
+
+
+def _recovery_link(db: Client, email: str) -> str | None:
+    """A password-reset link for the lock email. Supabase only builds it; the backend's mailer sends it."""
+    try:
+        result = db.auth.admin.generate_link(
+            {"type": "recovery", "email": email, "options": {"redirect_to": f"{settings.app_url.rstrip('/')}/reset-password"}}
+        )
+    except AuthApiError:
+        logger.exception("Could not generate a recovery link for the lock email")
+        return None
+    return result.properties.action_link
+
+
+# Declares the Bearer scheme in the OpenAPI document (the Authorize button in /docs, and a lock on every route that
+# needs a token). Its value is ignored: the header is still read and checked exactly as before, below.
+bearer_scheme = HTTPBearer(auto_error=False, scheme_name="BearerAuth", bearerFormat="JWT", description=BEARER_DESCRIPTION)
+
+
+def _bearer_token(request: Request, _documented=Security(bearer_scheme)) -> str:
+    scheme, _, token = (request.headers.get("authorization") or "").partition(" ")
     if scheme.lower() != "bearer" or not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated.")
     return token
@@ -115,8 +227,12 @@ def require_role(*roles: str):
     return checker
 
 
-@router.post("/register", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register", status_code=status.HTTP_201_CREATED, summary="Register as a customer and sign in",
+    responses=errors((400, "Supabase could not create the account."), (409, "An account with this email already exists."), 500),
+)
 def register(body: RegisterRequest, db: Client = Depends(get_supabase)):
+    """Creates an active customer profile and returns a session, the same as `/auth/login`."""
     try:
         created = db.auth.admin.create_user(
             {"email": body.email, "password": body.password, "email_confirm": True}
@@ -147,20 +263,33 @@ def register(body: RegisterRequest, db: Client = Depends(get_supabase)):
     return login(LoginRequest(email=body.email, password=body.password), db)
 
 
-@router.post("/login")
+@router.post(
+    "/login", summary="Sign in",
+    responses=errors((401, "Invalid email or password."), (403, "The profile is missing or inactive."),
+                     (429, "Locked for 5 minutes after 3 failed attempts; Retry-After says how long.")),
+)
 def login(body: LoginRequest, db: Client = Depends(get_supabase)):
+    """Returns `access_token`, `refresh_token`, `expires_in` (seconds) and `profile`."""
     # A throwaway client keeps the user's session off the shared admin client.
+    account = _find_login_account(db, body.email)
+    if account:
+        _reject_if_locked(account)
+
     auth_client = create_client(settings.supabase_url, settings.supabase_publishable_key)
     try:
         result = auth_client.auth.sign_in_with_password({"email": body.email, "password": body.password})
     except AuthApiError:
+        _register_failed_login(db, account, body.email)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, INVALID_LOGIN)
     if result.session is None or result.user is None:
+        _register_failed_login(db, account, body.email)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, INVALID_LOGIN)
+    if account and account.get("failed_login_attempts"):
+        db.table("users").update({"failed_login_attempts": 0, "locked_until": None}).eq("id", account["id"]).execute()
     return _session_out(result.session, _load_profile(db, result.user.id))
 
 
-@router.post("/refresh")
+@router.post("/refresh", summary="Renew a session", responses=errors((401, "The refresh token is invalid or expired."), 403))
 def refresh(body: RefreshRequest, db: Client = Depends(get_supabase)):
     auth_client = create_client(settings.supabase_url, settings.supabase_publishable_key)
     try:
@@ -172,12 +301,12 @@ def refresh(body: RefreshRequest, db: Client = Depends(get_supabase)):
     return _session_out(result.session, _load_profile(db, result.user.id))
 
 
-@router.get("/me")
+@router.get("/me", summary="Get your profile", responses=errors(*SIGNED_IN))
 def me(user: dict = Depends(get_current_user)):
     return {"profile": _profile_out(user)}
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, summary="Sign out", responses=errors((401, "No access token was sent.")))
 def logout(token: str = Depends(_bearer_token), db: Client = Depends(get_supabase)):
     try:
         db.auth.admin.sign_out(token)
@@ -185,8 +314,9 @@ def logout(token: str = Depends(_bearer_token), db: Client = Depends(get_supabas
         pass  # Already invalid; nothing to revoke.
 
 
-@router.post("/forgot-password", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/forgot-password", status_code=status.HTTP_204_NO_CONTENT, summary="Email a password-reset link")
 def forgot_password(body: ForgotPasswordRequest):
+    """Always 204, whether or not the address is registered."""
     # Implicit flow puts the recovery token in the link itself; PKCE would need a code verifier that
     # this throwaway client does not outlive.
     auth_client = create_client(
@@ -203,7 +333,10 @@ def forgot_password(body: ForgotPasswordRequest):
         logger.warning("Password reset request failed: %s (%s)", error.message, error.code)
 
 
-@router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/reset-password", status_code=status.HTTP_204_NO_CONTENT, summary="Set a new password from a reset link",
+    responses=errors((400, "The reset link is invalid or expired, or the password was refused.")),
+)
 def reset_password(body: ResetPasswordRequest, db: Client = Depends(get_supabase)):
     invalid = HTTPException(status.HTTP_400_BAD_REQUEST, "This reset link is invalid or has expired.")
     try:
@@ -216,21 +349,34 @@ def reset_password(body: ResetPasswordRequest, db: Client = Depends(get_supabase
         db.auth.admin.update_user_by_id(result.user.id, {"password": body.password})
     except AuthApiError as error:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, error.message)
+    # Resetting the password proves ownership, so it also lifts any failed-login lockout.
+    db.table("users").update({"failed_login_attempts": 0, "locked_until": None}).eq("id", result.user.id).execute()
     record_event(db, result.user.id, audit.PASSWORD_RESET)
 
 
-@router.patch("/me")
+@router.patch(
+    "/me", summary="Update your name, phone number or mailing address",
+    responses=errors(*SIGNED_IN, (422, "Invalid field, or an incomplete mailing address.")),
+)
 def update_profile(body: UpdateProfileRequest, user: dict = Depends(get_current_user), db: Client = Depends(get_supabase)):
+    """Send only the fields to change. Email, role and status can't be changed here."""
     # Only the fields the client sent, and only those that actually differ, are written and logged.
-    submitted = {"first_name": body.first_name, "last_name": body.last_name, "phone_number": body.phone}
+    submitted = {
+        "first_name": body.first_name, "last_name": body.last_name, "phone_number": body.phone,
+        **{column: getattr(body, column) for column in ADDRESS_COLUMNS},
+    }
     changes = {
-        column: value.strip() if isinstance(value, str) else value
+        column: _clean(column, value)
         for column, value in submitted.items()
         if (column if column != "phone_number" else "phone") in body.model_fields_set
     }
     changes = {column: value for column, value in changes.items() if user.get(column) != value}
     if not changes:
         return {"profile": _profile_out(user)}
+    # Checked only when the address changes, so an old partial address never blocks a name or phone update.
+    error = _address_error({**user, **changes}) if any(column in ADDRESS_COLUMNS for column in changes) else None
+    if error:
+        raise HTTPException(422, error)
     rows = db.table("users").update(changes).eq("id", user["id"]).execute().data
     record_event(
         db,

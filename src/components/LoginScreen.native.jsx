@@ -1,10 +1,11 @@
 import React from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiConfigured } from '../services/api';
 import { colors } from '../theme';
 import { styles } from '../styles/appStyles';
-import { Action, Card, Field, Icon, LinkButton, Notice } from '../ui/primitives';
+import { Action, Card, Field, Icon, LinkButton, Notice, Text } from '../ui/primitives';
+import { TEXT_CAP } from '../ui/textScale';
 import { useApp } from '../state/AppState';
 
 const TITLES = { login: 'Welcome back', register: 'Create your account', forgot: 'Reset your password', mfa: 'Verify your sign in' };
@@ -25,14 +26,14 @@ export function LoginScreen() {
 
   return <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
     <ScrollView style={styles.loginShell} contentContainerStyle={[styles.nativeLoginContent, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]} keyboardShouldPersistTaps="handled">
-      <View style={styles.nativeLoginBrand}><View style={styles.brandMark}><Icon name="shield-checkmark" size={20} color={colors.white} /></View><Text style={styles.brandName}>CS160 Bank</Text></View>
+      <View style={styles.nativeLoginBrand}><View style={styles.brandMark}><Icon name="shield-checkmark" size={20} color={colors.white} /></View><Text style={[styles.brandName, { flexShrink: 1 }]} maxFontSizeMultiplier={TEXT_CAP.display}>CS160 Bank</Text></View>
       {authView === 'login' && <>
         <Text style={styles.loginEyebrow}>BANKING MADE CLEAR</Text>
-        <Text style={styles.nativeLoginHeadline}>A better view of your everyday banking.</Text>
+        <Text style={styles.nativeLoginHeadline} maxFontSizeMultiplier={TEXT_CAP.display}>A better view of your everyday banking.</Text>
         <Text style={styles.nativeLoginDescription}>Balances, transfers, payments and activity, all in one simple place.</Text>
       </>}
       <Card style={styles.nativeLoginCard}>
-        <Text style={styles.loginCardTitle}>{TITLES[authView]}</Text>
+        <Text style={styles.loginCardTitle} maxFontSizeMultiplier={TEXT_CAP.heading}>{TITLES[authView]}</Text>
         <Text style={styles.loginCardSubtitle}>{SUBTITLES[authView]}</Text>
         <Notice text={notice} kind={noticeKind} />
         {!apiConfigured && authView === 'login' ? <>

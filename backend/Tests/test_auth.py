@@ -331,6 +331,7 @@ def test_login_success(monkeypatch):
 #test8 incorrect password
 def test_login_wrong_password(monkeypatch):
     fake_db = MagicMock()
+    fake_db.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value.data = []
     fake_auth_client = MagicMock()
 
     class FakeAuthError(Exception):
@@ -369,12 +370,13 @@ def test_login_wrong_password(monkeypatch):
         "email": "test@example.com",
         "password": "WrongPassword123!"
     })
-    fake_db.table.assert_not_called()
+    fake_db.rpc.assert_not_called()  # unknown email: no attempt is counted
 
 
 #test9 invalid email
 def test_login_unregistered_email(monkeypatch):
     fake_db = MagicMock()
+    fake_db.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value.data = []
     fake_auth_client = MagicMock()
 
     class FakeAuthError(Exception):
@@ -412,7 +414,7 @@ def test_login_unregistered_email(monkeypatch):
 
     fake_auth_client.auth.sign_in_with_password.assert_called_once()
 
-    fake_db.table.assert_not_called()
+    fake_db.rpc.assert_not_called()  # unknown email: no attempt is counted
 
 
 #test10 empty email/password
@@ -616,12 +618,11 @@ def test_reset_password_rejects_bad_token(client, supabase):
     supabase.mock.auth.admin.update_user_by_id.assert_not_called()
 
 
-@pytest.mark.parametrize("email", ["test@example.com", "student@sjsu.edu", "test@gmail.com.evil.org", "test@notgmail.com"])
-def test_register_rejects_non_gmail(client, supabase, email):
+@pytest.mark.parametrize("email", ["test@example.com", "student@sjsu.edu", "someone@gmail.com"])
+def test_register_accepts_any_email_domain(client, supabase, email):
     response = client.post("/auth/register", json={
         "first_name": "Test", "last_name": "User", "email": email, "password": "Password123!",
     })
 
-    assert response.status_code == 422
-    assert "only allowing @gmail email addresses" in response.json()["detail"][0]["msg"]
-    supabase.mock.auth.admin.create_user.assert_not_called()
+    assert response.status_code == 201
+    supabase.mock.auth.admin.create_user.assert_called_once()

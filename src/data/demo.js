@@ -1,6 +1,7 @@
 export const demoProfile = {
   first_name: 'Jordan', last_name: 'Taylor', email: 'jordan.taylor@example.com',
   phone: '(415) 555-0184', role: 'customer',
+  address_line1: '500 Market St', address_line2: 'Apt 12', city: 'San Francisco', state: 'CA', zip_code: '94105',
 };
 
 export const demoAccounts = [
@@ -15,6 +16,7 @@ export const demoTransactions = [
   { id: 't4', account_id: 'savings', description: 'Transfer from checking', transaction_type: 'Transfer', amount: 500.00, created_at: '2026-09-21', status: 'Completed' },
   { id: 't5', account_id: 'checking', description: 'Corner coffee', transaction_type: 'Card purchase', amount: -6.75, created_at: '2026-09-20', status: 'Completed' },
   { id: 't6', account_id: 'checking', description: 'Rent payment', transaction_type: 'Bill payment', amount: -1850.00, created_at: '2026-09-18', status: 'Completed' },
+  { id: 't7', account_id: 'checking', description: 'Mobile check deposit', transaction_type: 'Deposit', amount: 500.00, created_at: '2026-09-16', status: 'Failed' },
 ];
 
 export const demoPayments = [

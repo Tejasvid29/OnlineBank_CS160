@@ -77,6 +77,29 @@ $$;
 revoke execute on function public.process_due_payments() from public, anon, authenticated;
 grant execute on function public.process_due_payments() to service_role;
 
--- Run every day at 08:00 UTC.
+-- A 'once' payment is paid immediately: the withdrawal and the completed payment row are written together, or (for
+-- insufficient funds, a closed account, ...) neither is. Raises the same errors as post_account_transaction.
+create or replace function public.pay_bill_now(p_user_id uuid, p_account_id uuid, p_recipient text, p_amount numeric)
+returns public.scheduled_payments
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  paid public.scheduled_payments;
+begin
+  perform public.post_account_transaction(
+    p_user_id, p_account_id, -p_amount, 'withdrawal', 'Bill payment: ' || p_recipient);
+  insert into public.scheduled_payments (account_id, customer_id, recipient, amount, frequency, next_payment_date, status)
+    values (p_account_id, p_user_id, p_recipient, p_amount, 'once', current_date, 'completed')
+    returning * into paid;
+  return paid;
+end;
+$$;
+
+revoke execute on function public.pay_bill_now(uuid, uuid, text, numeric) from public, anon, authenticated;
+grant execute on function public.pay_bill_now(uuid, uuid, text, numeric) to service_role;
+
+-- Run every 5 minutes. Scheduling under the same name replaces the earlier daily job.
 create extension if not exists pg_cron;
-select cron.schedule('process-due-payments', '0 8 * * *', $$select public.process_due_payments()$$);
+select cron.schedule('process-due-payments', '*/5 * * * *', $$select public.process_due_payments()$$);
