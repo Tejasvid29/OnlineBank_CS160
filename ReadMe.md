@@ -137,4 +137,190 @@ npm run build:web
 backend/.venv/bin/pytest -q backend/Tests
 ```
 
+
+## End-to-End (E2E) Testing with Playwright
+
+The project includes 37 end-to-end tests using Playwright. These tests verify authentication, account management, deposits, transfers, bill payments, transaction history, ATM searches, profile settings, and manager authorization.
+
+The following setup instructions use **Windows PowerShell**. Run all commands from the repository root unless stated otherwise.
+
+### 1. Install dependencies
+
+Clone the repository if you have not already done so:
+
+```powershell
+git clone https://github.com/Tejasvid29/OnlineBank_CS160.git
+cd OnlineBank_CS160
+```
+
+Install the frontend dependencies and Playwright's Chromium browser:
+
+```powershell
+npm install
+npx.cmd playwright install chromium
+```
+
+Make sure you have Node.js 20+ and Python 3.11+ installed.
+
+### 2. Configure the backend and database
+
+The E2E tests use the live FastAPI backend connected to Supabase, not the frontend's demo mode.
+
+Follow the backend and Supabase instructions earlier in this README. Use a **separate test Supabase project**, with the required tables, database functions, and SQL migrations installed.
+
+In PowerShell:
+
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+Copy-Item .env.example .env
+```
+
+Fill in `backend/.env` with the required Supabase configuration values described earlier in this README. Never commit this file or any API keys to GitHub.
+
+The ATM search tests also require a Geoapify API key.
+
+### 3. Prepare the E2E test users
+
+Create two customer accounts through the application's registration screen:
+
+- **Primary test user:** Used for authentication, deposits, accounts, transfers, bill payments, profile settings, and other tests.
+- **Recipient test user:** Used to verify transfers and attempts to access another customer's accounts.
+
+Both accounts must have an active checking account. The primary account should contain sufficient simulated funds for transfers and bill payments.
+
+Use dedicated test users because the tests can create or close accounts, change balances, submit payments, and create transaction records.
+
+Also choose a valid-format account number that does not exist in the test database for the nonexistent-recipient transfer test.
+
+### 4. Start the backend (Terminal 1)
+
+Open a PowerShell terminal and run:
+
+```powershell
+cd OnlineBank_CS160\backend
+```
+
+If you are already in the repository root, use `cd backend` instead.
+
+Set the Geoapify API key:
+
+```powershell
+$env:GEOAPIFY_API_KEY = Read-Host "Geoapify API key"
+```
+
+Start the backend:
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn main:app --port 8000
+```
+
+Verify the backend is connected to Supabase:
+
+http://127.0.0.1:8000/health/db
+
+Expected response:
+
+```json
+{"status":"ok","supabase":"connected"}
+```
+
+Keep this terminal running while executing the tests.
+
+### 5. Start the frontend (Terminal 2)
+
+Open another PowerShell terminal in the repository root.
+
+Set the backend URL:
+
+```powershell
+$env:EXPO_PUBLIC_API_URL = "http://127.0.0.1:8000"
+```
+
+Start Expo Web on port 3001:
+
+```powershell
+npm.cmd run web -- --port 3001 --clear
+```
+
+The frontend should be available at:
+
+http://localhost:3001
+
+Keep this terminal running. The backend and frontend must both be running during E2E testing.
+
+### 6. Set the test environment variables (Terminal 3)
+
+Open a third PowerShell terminal in the repository root.
+
+Set the credentials for your two dedicated test users:
+
+```powershell
+$env:E2E_TEST_EMAIL = Read-Host "Primary test email"
+$env:E2E_TEST_PASSWORD = Read-Host "Primary test password"
+
+$env:E2E_RECIPIENT_EMAIL = Read-Host "Recipient test email"
+$env:E2E_RECIPIENT_PASSWORD = Read-Host "Recipient test password"
+```
+
+Set an unused account number:
+
+```powershell
+$env:E2E_MISSING_ACCOUNT_NUMBER = "999999999999"
+```
+
+Verify that the selected account number does not exist in your Supabase test database before running the tests. Change it if necessary.
+
+These environment variables apply only to the current PowerShell session. Set them again when opening a new terminal.
+
+**Security:** Do not hardcode credentials inside the test files or commit passwords, API keys, or environment files. Note that ordinary `Read-Host` displays the entered password in the terminal.
+
+### 7. Run all 37 E2E tests
+
+From the repository root, run:
+
+```powershell
+npx.cmd playwright test auth.spec.js deposit.spec.js accounts.spec.js transfer.spec.js payments.spec.js activity.spec.js atms.spec.js accounts-ui.spec.js profile.spec.js manager.spec.js --workers=1
+```
+
+Expected result:
+
+```text
+37 passed
+```
+
+The tests cover:
+
+| Test file | Tests | Description |
+| --- | ---: | --- |
+| `auth.spec.js` | 3 | Registration and authentication |
+| `deposit.spec.js` | 5 | ATM cash deposits and deposit validation |
+| `accounts.spec.js` | 6 | Account API operations |
+| `accounts-ui.spec.js` | 2 | Account creation and closure through the UI |
+| `transfer.spec.js` | 9 | Internal transfers and sending money |
+| `payments.spec.js` | 5 | Bill payment validation, scheduling, and cancellation |
+| `activity.spec.js` | 3 | Transaction history and filtering |
+| `atms.spec.js` | 2 | ATM search and location results |
+| `profile.spec.js` | 1 | Profile information and settings |
+| `manager.spec.js` | 1 | Customer restrictions on manager access |
+| **Total** | **37** | |
+
+The `--workers=1` option runs tests sequentially to reduce interference between tests that share accounts and balances.
+
+Important notes
+
+- Always start both the backend and frontend before running the tests.
+- Use a test Supabase database, not a production database.
+- Ensure the test accounts have active checking accounts and enough simulated funds.
+- The ATM search tests require a working Geoapify API key.
+- The customer-facing cash deposit tests use `POST /atm/deposits`, not the admin-only `POST /accounts/{account_id}/deposits` endpoint.
+- One-time bill payments are processed immediately; recurring payments can be scheduled and canceled.
+- Some tests modify persistent database data. Repeated runs may create additional accounts, transactions, and payment records.
+- If tests fail after a teammate updates the frontend or backend, check whether the UI labels, API endpoints, or expected responses have changed.
+- The full 37-test suite was verified successfully after the latest E2E test updates.
+
+
 The repository also includes browser tests under `tests/e2e/`. Live check OCR and settlement tests are still pending. See [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md) for the full handoff.
+
+
