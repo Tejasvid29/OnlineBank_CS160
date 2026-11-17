@@ -321,6 +321,35 @@ Important notes
 - The full 37-test suite was verified successfully after the latest E2E test updates.
 
 
+## Backend API Testing (Pytest)
+
+The backend also includes Python tests in `backend/Tests/`. These are separate from the Playwright E2E tests and help verify backend functionality.
+
+### 1. Set up the backend
+
+Follow the backend setup instructions earlier in this README, including installing Python dependencies and configuring `backend/.env`.
+
+Make sure the Python virtual environment has pytest installed:
+
+```powershell
+.\backend\.venv\Scripts\python.exe -m pip install pytest
+```
+
+### 2. Run all backend tests
+
+Open PowerShell in the repository root and run:
+
+```powershell
+.\backend\.venv\Scripts\python.exe -m pytest -q backend/Tests
+```
+
+**Notes:**
+- Some tests may require the backend's environment variables or test database configuration.
+- Use a dedicated test database whenever tests modify stored data.
+- Backend pytest tests and Playwright E2E tests are separate test suites.
+- The 37 Playwright tests do not include the backend pytest test count.
+
+
 The repository also includes browser tests under `tests/e2e/`. Live check OCR and settlement tests are still pending. See [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md) for the full handoff.
 
 
