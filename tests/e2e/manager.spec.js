@@ -30,9 +30,9 @@ test('reject customer access to manager dashboard', async ({ page, request }) =>
 
   await page.goto('/manager');
 
-  await expect(page.getByText('Access denied', {exact: true})).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Sign in'})).toBeVisible();
 
-  await expect(page.getByText('This page is available to authorized staff only.',{ exact: true })).toBeVisible();
+  await expect(page.getByText('Manager dashboard', {exact: true})).toHaveCount(0);
 
   const managerResponse = await request.get(
     'http://127.0.0.1:8000/manager/customers',
