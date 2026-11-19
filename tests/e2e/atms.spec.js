@@ -61,4 +61,6 @@ test('successfully searches for ATMs', async ({ page }) => {
   await expect(page.getByText('Directions', {
     exact: true
   }).first()).toBeVisible();
+
+  await expect(page.getByTestId('atm-map')).toBeVisible();
 });

@@ -96,6 +96,7 @@ export function AppProvider({ children }) {
   const [frequency, setFrequency] = useState('Once');
   const [atmSearch, setAtmSearch] = useState('San Francisco, CA');
   const [atms, setAtms] = useState(demoAtms);
+  const [atmOrigin, setAtmOrigin] = useState(null); // Where the user searched from (GPS); null for typed searches.
   const [transactionSearch, setTransactionSearch] = useState('');
   const [transactionType, setTransactionType] = useState('All');
   const [transactionStart, setTransactionStart] = useState('');
@@ -266,7 +267,7 @@ export function AppProvider({ children }) {
     setTransferFrom('checking'); setTransferTo('savings'); setTransferAmount(''); setTransferNote('');
     setSendFrom(''); setSendRecipient(''); setSendAmount(''); setSendNote('');
     setPayee(''); setPaymentAmount(''); setPaymentDate(''); setFrequency('Once');
-    setAtmSearch('San Francisco, CA'); setAtms(demoAtms);
+    setAtmSearch('San Francisco, CA'); setAtms(demoAtms); setAtmOrigin(null);
     setTransactionSearch(''); setTransactionType('All'); setTransactionStart(''); setTransactionEnd('');
     setProfileDraft(initialProfileDraft);
     // Native uses a tab navigator, which handles navigate but not replace.
@@ -427,7 +428,7 @@ export function AppProvider({ children }) {
   async function findAtms() {
     if (!atmSearch.trim()) { setNotice('Enter a city, ZIP code, or address.'); return; }
     setBusy(true); setNotice('');
-    try { if (apiConfigured) setAtms(unwrap(await bankingApi.atms(atmSearch.trim()), 'atms')); else setNotice('Showing sample ATM locations near San Francisco.', 'info'); }
+    try { if (apiConfigured) { setAtms(unwrap(await bankingApi.atms(atmSearch.trim()), 'atms')); setAtmOrigin(null); } else setNotice('Showing sample ATM locations near San Francisco.', 'info'); }
     catch (error) { fail(error); }
     finally { setBusy(false); }
   }
@@ -437,6 +438,7 @@ export function AppProvider({ children }) {
     if (label) setAtmSearch(label);
     setBusy(true); setNotice('');
     try {
+      setAtmOrigin({ latitude: position.latitude, longitude: position.longitude });
       if (apiConfigured) setAtms(unwrap(await bankingApi.atmsNear(position.latitude, position.longitude), 'atms'));
       else {
         setAtms(demoAtms.map((atm) => ({ ...atm, miles: milesBetween(position, atm) })).sort((a, b) => a.miles - b.miles).map(({ miles, ...atm }) => ({ ...atm, distance: `${miles < 10 ? miles.toFixed(1) : Math.round(miles).toLocaleString('en-US')} mi` })));
@@ -660,7 +662,7 @@ export function AppProvider({ children }) {
     setManagerReportFilter, showManagerReport, setShowManagerReport, transferFrom, setTransferFrom, transferTo, setTransferTo,
     transferAmount, setTransferAmount, transferNote, setTransferNote, sendFrom, setSendFrom, sendRecipient, setSendRecipient,
     sendAmount, setSendAmount, sendNote, setSendNote, submitSendMoney, payee, setPayee, paymentAmount, setPaymentAmount,
-    paymentDate, setPaymentDate, frequency, setFrequency, atmSearch, setAtmSearch, atms, transactionSearch, setTransactionSearch,
+    paymentDate, setPaymentDate, frequency, setFrequency, atmSearch, setAtmSearch, atms, atmOrigin, transactionSearch, setTransactionSearch,
     transactionType, setTransactionType, transactionStart, setTransactionStart, transactionEnd, setTransactionEnd, profileDraft,
     setProfileDraft, unread, isManager, total, visibleTransactions, accountOptions,
     navigate, refreshData, signIn, verifyMfa, resetPassword, signOut, submitTransfer, submitPayment, cancelPayment, createAccount,

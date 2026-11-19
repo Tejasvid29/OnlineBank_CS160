@@ -53,7 +53,7 @@ The high-level test plan's usability goals informed readable labels, high-contra
 | Bill payments | Schedule, view, and cancel payments; validates amount and date | `/bill-payments` |
 | Activity | Account, description, type, and date filters | `GET /accounts/{id}/transactions` |
 | Notifications | Unread count, list, and mark read | `GET /notifications`, `PATCH /notifications/{id}/read` |
-| ATM search | Search field, results, and directions link | `GET /atm/search` (built; Geoapify, Chase ATMs only) |
+| ATM search | Search field, results, embedded map, and directions link. The map is Leaflet + OpenStreetMap tiles (`src/components/AtmMap*.jsx`; web uses react-leaflet, native uses a WebView, and both need network access for tiles). | `GET /atm/search` (built; Geoapify, Chase ATMs only) |
 | Profile | Editable in demo; read-only save action in API mode | Dedicated profile update route has not been specified |
 | Manager | Customer/account search and filtered balance summary; staff-only navigation | `/manager/customers` built (admin only); `/manager/accounts` and `/manager/reports` not built, so the dashboard shows an error in API mode |
 | Check deposit | Native camera capture, amount/account review, private upload, duplicate retry handling, pending history; web shows mobile guidance | `POST/GET /deposits` and `sql/check_deposits.sql` added. OCR, verification, approval, and crediting remain future work. |

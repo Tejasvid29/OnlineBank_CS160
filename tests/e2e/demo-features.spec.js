@@ -57,6 +57,7 @@ test.describe('CS160 Bank demo features', () => {
     await page.getByRole('button', { name: /Find an ATM/ }).click();
 
     await expect(page.getByText('Downtown Banking Center')).toBeVisible();
+    await expect(page.getByTestId('atm-map')).toBeVisible();
     await page.getByLabel('Location').fill('Oakland, CA');
     await page.getByRole('button', { name: 'Search ATMs' }).click();
 

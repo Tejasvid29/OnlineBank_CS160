@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Alert, Linking, Platform, View } from 'react-native';
+import { Alert, Linking, Platform, Pressable, View } from 'react-native';
 import * as Location from 'expo-location';
 import { colors } from '../src/theme';
 import { styles } from '../src/styles/appStyles';
 import { Action, Card, Field, Icon, LinkButton, SectionHeading, Text } from '../src/ui/primitives';
 import { useTextScale } from '../src/ui/textScale';
 import { useApp } from '../src/state/AppState';
+import { AtmMap } from '../src/components/AtmMap';
 
 const googleDirections = (destination) => `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`;
 
@@ -19,8 +20,9 @@ async function openDirections(atm) {
 
 // Native ATM search: current location or a typed place, results in one list card. Notices appear as the shell's toast.
 export default function Atms() {
-  const { atmSearch, setAtmSearch, findAtms, findAtmsNear, busy, atms, setNotice } = useApp();
+  const { atmSearch, setAtmSearch, findAtms, findAtmsNear, busy, atms, atmOrigin, setNotice } = useApp();
   const [locating, setLocating] = useState(false);
+  const [selectedId, setSelectedId] = useState(null);
   const { large } = useTextScale();
 
   async function locateMe() {
@@ -48,6 +50,7 @@ export default function Atms() {
     <Action variant="secondary" onPress={locateMe} disabled={busy || locating} icon="locate-outline" style={[styles.nativeFullAction, { marginBottom: 16 }]}>{locating ? 'Finding your location…' : 'Use my current location'}</Action>
     <Field label="Or search by place" value={atmSearch} onChangeText={setAtmSearch} placeholder="City, ZIP, or address" />
     <Action onPress={findAtms} disabled={busy || locating} icon="search-outline" style={[styles.nativeFullAction, { marginBottom: 16 }]}>{busy && !locating ? 'Searching…' : 'Search ATMs'}</Action>
+    <View style={{ marginBottom: 16 }}><AtmMap atms={atms} origin={atmOrigin} selectedId={selectedId} onSelect={setSelectedId} height={large ? 320 : 260} /></View>
     <Card style={styles.nativeListCard}>
       {atms.length ? atms.map((atm) => {
         // Large text: distance and Directions go under the address instead of beside it.
@@ -55,7 +58,7 @@ export default function Atms() {
           <Text style={styles.distance}>{atm.distance || 'Nearby'}</Text>
           <LinkButton onPress={() => openDirections(atm)} icon="navigate-outline">Directions</LinkButton>
         </View>;
-        return <View key={atm.id} style={styles.atmRow}>
+        return <Pressable key={atm.id} onPress={() => setSelectedId(atm.id)} style={[styles.atmRow, atm.id === selectedId && { backgroundColor: colors.sky }]}>
           <View style={styles.atmIcon}><Icon name="location-outline" size={22} /></View>
           <View style={{ flex: 1 }}>
             <Text style={styles.rowTitle}>{atm.name}</Text>
@@ -64,7 +67,7 @@ export default function Atms() {
             {large && side}
           </View>
           {!large && side}
-        </View>;
+        </Pressable>;
       }) : <Text style={styles.emptyText}>No ATMs found for this location.</Text>}
     </Card>
     <Text style={[styles.rowSub, { marginTop: 8 }]}>Powered by Geoapify · © OpenStreetMap contributors</Text>
