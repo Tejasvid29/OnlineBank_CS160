@@ -11,6 +11,45 @@ The interface takes its blue-and-white palette and navigation from Chase's web d
 - A Supabase project (for API mode). Demo mode needs no backend.
 - An iOS simulator, Android emulator, or phone with Expo Go for the native app.
 
+## Quick start with Docker (web + API + local Supabase)
+
+Install Docker Desktop, then from the repository root:
+
+```bash
+docker compose up --build
+```
+
+The full guide (demo logins, Android emulator, configuration, troubleshooting) is [docs/DOCKER.md](docs/DOCKER.md).
+
+This builds the web app and the API and starts a self-hosted Supabase (Postgres, Auth, REST, Storage), applies the database SQL, and needs no accounts or keys. The first run pulls several images and takes a few minutes.
+
+| What | Where |
+| --- | --- |
+| Web app | <http://localhost:3000> |
+| API and docs | <http://localhost:8000/docs> (health: `/health`, `/health/db`) |
+| Supabase API gateway | <http://localhost:54331> |
+| Caught emails (password reset) | <http://localhost:8025> |
+| Postgres (for psql or a GUI) | `localhost:54332`, user `postgres`, password `postgres-local-dev-password` |
+
+Useful commands:
+
+```bash
+docker compose run --rm seed     # optional demo data: an admin, the e2e users, and funded accounts (prints their logins)
+docker compose logs -f api       # follow one service
+docker compose down              # stop, keeping data
+docker compose down -v           # stop and delete all local data (database, check images)
+```
+
+Notes:
+
+- The web app is built in API mode against `http://localhost:8000`. That address is baked into the bundle at build time, so after changing it (for example to this PC's LAN address for a phone) rebuild with `docker compose build web`. Settings you can override are listed in [docker/.env.example](docker/.env.example); use `docker compose --env-file docker/.env up --build`.
+- ATM search needs a free [Geoapify](https://www.geoapify.com) key in `GEOAPIFY_API_KEY`; without it that screen reports 503.
+- The default keys and passwords are public development values for your own machine only.
+- The Android emulator still reaches the API with the `adb reverse tcp:8000 tcp:8000` step below, and the Playwright specs can run against this stack with the `E2E_*` values the seed command prints.
+- Emails the backend sends itself (account-locked notice, month-end statements) are skipped unless `RESEND_API_KEY` or `SMTP_*` is set; password-reset emails come from Supabase Auth and land in Mailpit.
+- The stack uses ports 3000, 8000, 8025, 54331 and 54332, so it can run next to a Supabase CLI stack (`supabase start`, ports 54321 to 54324). Change any of them in `docker/.env`.
+- If the build stops with `additional privileges requested: pass "--allow=fs.read=..."` (a Docker Buildx quirk on some Windows setups), set `BUILDX_BAKE_ENTITLEMENTS_FS=0` for the command, for example `$env:BUILDX_BAKE_ENTITLEMENTS_FS=0; docker compose up --build` in PowerShell.
+
 ## 1. Run the web app (demo mode)
 
 ```bash
@@ -45,30 +84,7 @@ Check it works: open <http://127.0.0.1:8000/health/db>. It should return `{"stat
 
 ### Database
 
-The backend expects a `public.users` table whose `id` is the user's Supabase Auth id. Passwords are **not** stored in it; Supabase Auth keeps the hashed password in `auth.users`. Run this once in the Supabase SQL editor:
-
-```sql
-create type public.account_role as enum ('customer', 'admin');
-create type public.account_status as enum ('active', 'inactive');
-
-create table public.users (
-  id uuid primary key references auth.users (id) on delete cascade,
-  first_name text not null,
-  last_name text not null,
-  email text not null unique,
-  phone_number text,
-  zip_code text check (zip_code ~ '^[0-9]{5}$'),
-  role public.account_role not null default 'customer',
-  status public.account_status not null default 'active',
-  created_at timestamptz not null default now()
-);
-
-alter table public.users enable row level security;
-
-create policy "Users can view own row"
-  on public.users for select to authenticated
-  using ((select auth.uid()) = id);
-```
+The backend expects a `public.users` table whose `id` is the user's Supabase Auth id, and a `public.accounts` table. Passwords are **not** stored in `users`; Supabase Auth keeps the hashed password in `auth.users`. Run [docker/db/000_base_schema.sql](docker/db/000_base_schema.sql) once in the Supabase SQL editor to create both, then the files in `backend/sql/` in the order listed in [docker/db/order.txt](docker/db/order.txt) (skip `users_zip_code.sql`; `zip_code` is already in the base schema). The Docker setup below does all of this automatically.
 
 To make someone an admin, set their `role` to `admin` in the Supabase table editor. Registration always creates `customer` accounts.
 

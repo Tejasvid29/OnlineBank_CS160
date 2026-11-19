@@ -35,6 +35,7 @@ Navigation uses Expo Router (`app/`, with `.native.jsx` versions for native scre
 
 - **Demo mode** is selected when `EXPO_PUBLIC_API_URL` is absent. Login opens a sample dashboard. Transfers and other demo actions change only React state in the current browser session. The interface labels this mode on the login screen and in a banner after entry.
 - **API mode** is selected when `EXPO_PUBLIC_API_URL` is set. Login, accounts, transactions, transfers, payments, ATM search, and check deposits call FastAPI. Optional list failures do not block sign-in. Manager access is based on the role returned by `/auth/me`.
+- **Docker** (`docker-compose.yml`) runs the web app (nginx), the API and a self-hosted Supabase (Postgres, Auth, REST, Storage behind a Kong gateway, plus Mailpit). `docker/db/000_base_schema.sql` holds the `users`/`accounts` tables copied from the hosted project, and `docker/db/migrate.sh` applies it and `backend/sql/*.sql` in the order of `docker/db/order.txt`. `SUPABASE_PUBLIC_URL` rewrites signed check-image links to an address the browser can reach. Details are in the ReadMe's "Quick start with Docker".
 - `EXPO_PUBLIC_API_URL` is public in the web bundle. Put only the API origin there, never a Supabase service key or other secret.
 
 ## Visual and interaction design

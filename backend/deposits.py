@@ -245,9 +245,16 @@ def _get_review_row(db: Client, deposit_id: str, columns: str = REVIEW_COLUMNS) 
     return rows[0]
 
 
+def _public_origin(url: str) -> str:
+    """Point a signed link at the browser-reachable Supabase origin when SUPABASE_PUBLIC_URL is set."""
+    public = settings.supabase_public_url.rstrip("/")
+    internal = settings.supabase_url.rstrip("/")
+    return public + url[len(internal):] if public and url.startswith(internal) else url
+
+
 def _signed_url(bucket, path: str) -> str | None:
     try:
-        return bucket.create_signed_url(path, IMAGE_URL_SECONDS)["signedURL"]
+        return _public_origin(bucket.create_signed_url(path, IMAGE_URL_SECONDS)["signedURL"])
     except Exception:
         return None  # The details still load; the reviewer sees the image is unavailable.
 

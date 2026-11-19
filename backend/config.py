@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     # Free key from geoapify.com. Server-side only; ATM search returns 503 until it is set.
     geoapify_api_key: str = ""
     check_deposit_bucket: str = "check-deposits"
+    # Browser-reachable Supabase origin. Only needed when SUPABASE_URL is an internal address (e.g. Docker's
+    # http://kong:8000): signed check-image links are rewritten to this origin. Empty = use SUPABASE_URL as-is.
+    supabase_public_url: str = ""
     # Where the password-reset email link sends the user. Must also be in Supabase's Redirect URLs.
     app_url: str = "http://localhost:8081"
     # Resend API key for emails the backend sends itself (e.g. the account-locked notice). Unset = those emails are skipped.

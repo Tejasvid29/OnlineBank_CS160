@@ -1,0 +1,22 @@
+# Migration order for the Docker stack (docker/db/migrate.sh). One path per line, relative to the two mounts:
+#   docker/...  -> ./docker/db       (files that only exist for the local stack)
+#   backend/... -> ./backend/sql     (the same SQL files used on the hosted project)
+#
+# Left out on purpose:
+#   users_zip_code.sql             zip_code is already in docker/000_base_schema.sql (re-running it errors)
+#   check_deposits_policy_fix.sql  only for databases created before check_deposits.sql was fixed
+docker/000_base_schema.sql
+backend/users_mailing_address.sql
+backend/login_lockout.sql
+backend/transactions.sql
+backend/audit_log.sql
+backend/send_money.sql
+backend/atm.sql
+backend/purchases.sql
+backend/card_transactions.sql
+backend/check_deposits.sql
+backend/check_deposit_review.sql
+backend/check_deposit_review_rules.sql
+backend/scheduled_payments.sql
+backend/statements.sql
+backend/notifications.sql

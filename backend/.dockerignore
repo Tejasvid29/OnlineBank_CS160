@@ -1,0 +1,12 @@
+.venv
+.env
+.env.*
+!.env.example
+__pycache__
+**/__pycache__
+.pytest_cache
+Tests
+sql
+skills-lock.json
+Dockerfile
+.dockerignore
