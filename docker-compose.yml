@@ -43,7 +43,8 @@ services:
       SUPABASE_SECRET_KEY: *service_key
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:8081}
       APP_URL: ${APP_URL:-http://localhost:3000}
-      GEOAPIFY_API_KEY: ${GEOAPIFY_API_KEY:-}
+      # Free-tier Geoapify key for ATM search. Override with GEOAPIFY_API_KEY in docker/.env.
+      GEOAPIFY_API_KEY: ${GEOAPIFY_API_KEY:-264799e633884c368f3ce349596f0574}
       # Optional: emails the backend sends itself (account-locked notice, statements). Unset = skipped.
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       SMTP_HOST: ${SMTP_HOST:-}

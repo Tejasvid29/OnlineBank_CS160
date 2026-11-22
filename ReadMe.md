@@ -43,7 +43,7 @@ docker compose down -v           # stop and delete all local data (database, che
 Notes:
 
 - The web app is built in API mode against `http://localhost:8000`. That address is baked into the bundle at build time, so after changing it (for example to this PC's LAN address for a phone) rebuild with `docker compose build web`. Settings you can override are listed in [docker/.env.example](docker/.env.example); use `docker compose --env-file docker/.env up --build`.
-- ATM search needs a free [Geoapify](https://www.geoapify.com) key in `GEOAPIFY_API_KEY`; without it that screen reports 503.
+- ATM search uses a default free-tier [Geoapify](https://www.geoapify.com) key built into `docker-compose.yml`. To use your own, set `GEOAPIFY_API_KEY` in `docker/.env`; an empty value makes that screen report 503.
 - The default keys and passwords are public development values for your own machine only.
 - The Android emulator still reaches the API with the `adb reverse tcp:8000 tcp:8000` step below, and the Playwright specs can run against this stack with the `E2E_*` values the seed command prints.
 - Emails the backend sends itself (account-locked notice, month-end statements) are skipped unless `RESEND_API_KEY` or `SMTP_*` is set; password-reset emails come from Supabase Auth and land in Mailpit.

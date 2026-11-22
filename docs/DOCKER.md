@@ -156,7 +156,7 @@ The ones you are most likely to want:
 
 | Setting | Why |
 | --- | --- |
-| `GEOAPIFY_API_KEY` | ATM search needs a free key from [geoapify.com](https://www.geoapify.com); without it that screen returns a 503 |
+| `GEOAPIFY_API_KEY` | ATM search. `docker-compose.yml` ships a default free-tier key, so it works out of the box; set your own from [geoapify.com](https://www.geoapify.com) to use a different quota (an empty value makes that screen return a 503) |
 | `WEB_PORT`, `API_PORT`, `SUPABASE_PORT`, `DB_PORT`, `MAILPIT_PORT` | Change a port if something else is using it |
 | `PUBLIC_API_URL` | The API address baked into the web app. Rebuild `web` after changing it |
 | `SUPABASE_PUBLIC_URL` | The address browsers and phones use for Supabase (check images) |
@@ -205,7 +205,7 @@ $env:E2E_MISSING_ACCOUNT_NUMBER="999999999999"
 npm run test:e2e
 ```
 
-The ATM spec also needs `GEOAPIFY_API_KEY` set for the stack.
+The ATM spec uses the stack's default Geoapify key, so it needs nothing extra unless that key's daily quota runs out.
 
 ## Troubleshooting
 
@@ -217,7 +217,7 @@ The ATM spec also needs `GEOAPIFY_API_KEY` set for the stack.
 
 **Login or requests fail from the web app with a network or CORS error.** The web app must be opened at `http://localhost:3000` or `http://127.0.0.1:3000`. For any other address, add it to `CORS_ORIGINS` in `docker/.env`.
 
-**ATM search says 503.** Set `GEOAPIFY_API_KEY` (see [Configuration](#configuration)).
+**ATM search says 503 or returns no results.** The default Geoapify key may be over its daily quota, or `GEOAPIFY_API_KEY` was set to an empty value in `docker/.env`. Set your own key (see [Configuration](#configuration)).
 
 **Check photos say "Unavailable" in the mobile app.** The emulator or phone cannot reach the Supabase gateway. See [Using the mobile app](#using-the-mobile-app) for the second `adb reverse`, or the LAN address setup for a phone.
 
