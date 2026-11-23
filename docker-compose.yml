@@ -1,0 +1,280 @@
+# CS160 Bank, everything local: web app, API, and a self-hosted Supabase (Postgres, Auth, REST, Storage, gateway).
+#
+#   docker compose up --build              # web http://localhost:3000, API http://localhost:8000/docs
+#   docker compose run --rm seed           # optional: demo/admin/e2e users with funded accounts
+#   docker compose down -v                 # stop and delete all local data
+#
+# Everything has a working local-development default. To override (ports, keys, Geoapify, SMTP), copy
+# docker/.env.example to docker/.env and run: docker compose --env-file docker/.env up --build
+# The default keys below are public development values: never reuse them anywhere that is not your own machine.
+
+name: cs160-bank
+
+x-supabase-defaults:
+  # HS256 secret plus the anon/service_role JWTs signed with it (valid until 2035).
+  jwt_secret: &jwt_secret ${JWT_SECRET:-your-super-secret-jwt-token-with-at-least-32-characters-long}
+  anon_key: &anon_key ${ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlLWRlbW8iLCJpYXQiOjE2NDE3NjkyMDAsImV4cCI6MjA1MTIyMjQwMH0.GKwARjOd77r-ZfqzeqoPp7vcKHY7RQ-hlGO0WQlHCLY}
+  service_key: &service_key ${SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UtZGVtbyIsImlhdCI6MTY0MTc2OTIwMCwiZXhwIjoyMDUxMjIyNDAwfQ.EMW84bYUwXGdFBAOjRHx7X0WTGR8make87Nv6BCpqTg}
+  db_password: &db_password ${POSTGRES_PASSWORD:-postgres-local-dev-password}
+
+services:
+  # ---------------------------------------------------------------- app
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        # Baked into the web bundle at build time. Rebuild (docker compose build web) after changing it.
+        EXPO_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8000}
+    ports:
+      - "${WEB_PORT:-3000}:80"
+    restart: unless-stopped
+
+  api:
+    image: cs160-bank-api:local
+    build: ./backend
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      SUPABASE_URL: http://kong:8000
+      # What the browser can reach, used to rewrite signed check-image links.
+      SUPABASE_PUBLIC_URL: ${SUPABASE_PUBLIC_URL:-http://localhost:54331}
+      SUPABASE_PUBLISHABLE_KEY: *anon_key
+      SUPABASE_SECRET_KEY: *service_key
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:8081}
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      # Free-tier Geoapify key for ATM search. Override with GEOAPIFY_API_KEY in docker/.env.
+      GEOAPIFY_API_KEY: ${GEOAPIFY_API_KEY:-264799e633884c368f3ce349596f0574}
+      # Optional: emails the backend sends itself (account-locked notice, statements). Unset = skipped.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+      kong:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------- local Supabase
+  db:
+    image: supabase/postgres:17.6.1.136
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf", "-c", "log_min_messages=fatal"]
+    environment:
+      POSTGRES_HOST: /var/run/postgresql
+      PGPORT: "5432"
+      POSTGRES_PORT: "5432"
+      POSTGRES_PASSWORD: *db_password
+      PGPASSWORD: *db_password
+      PGDATABASE: postgres
+      POSTGRES_DB: postgres
+      JWT_EXP: "3600"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - db-config:/etc/postgresql-custom
+      # Must run as superuser: sets the Auth/Storage/PostgREST role passwords and the JWT expiry setting.
+      - ./docker/supabase/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:ro
+      - ./docker/supabase/jwt.sql:/docker-entrypoint-initdb.d/init-scripts/99-jwt.sql:ro
+    ports:
+      - "127.0.0.1:${DB_PORT:-54332}:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  auth:
+    image: supabase/gotrue:v2.197.0
+    depends_on:
+      db:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: "9999"
+      # Links in emails (password reset) point here, through the gateway.
+      API_EXTERNAL_URL: ${SUPABASE_PUBLIC_URL:-http://localhost:54331}/auth/v1
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD:-postgres-local-dev-password}@db:5432/postgres
+      GOTRUE_SITE_URL: ${APP_URL:-http://localhost:3000}
+      # Where reset links may send the user. Must include APP_URL + /reset-password.
+      GOTRUE_URI_ALLOW_LIST: ${ADDITIONAL_REDIRECT_URLS:-http://localhost:3000/reset-password,http://127.0.0.1:3000/reset-password,http://localhost:8081/reset-password}
+      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: "3600"
+      GOTRUE_JWT_SECRET: *jwt_secret
+      GOTRUE_JWT_ISSUER: ${SUPABASE_PUBLIC_URL:-http://localhost:54331}/auth/v1
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      GOTRUE_EXTERNAL_PHONE_ENABLED: "false"
+      GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED: "false"
+      # The backend creates users already confirmed; only the password-reset email is sent.
+      GOTRUE_MAILER_AUTOCONFIRM: "false"
+      GOTRUE_SMTP_HOST: mailpit
+      GOTRUE_SMTP_PORT: "1025"
+      GOTRUE_SMTP_USER: ""
+      GOTRUE_SMTP_PASS: ""
+      GOTRUE_SMTP_ADMIN_EMAIL: noreply@cs160bank.local
+      GOTRUE_SMTP_SENDER_NAME: CS160 Bank
+      GOTRUE_MAILER_URLPATHS_INVITE: /auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_CONFIRMATION: /auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_RECOVERY: /auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: /auth/v1/verify
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9999/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  rest:
+    image: postgrest/postgrest:v14.18
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD:-postgres-local-dev-password}@db:5432/postgres
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_DB_MAX_ROWS: "1000"
+      PGRST_DB_EXTRA_SEARCH_PATH: public
+      PGRST_ADMIN_SERVER_PORT: "3001"
+      PGRST_ADMIN_SERVER_HOST: localhost
+      PGRST_JWT_SECRET: *jwt_secret
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_APP_SETTINGS_JWT_EXP: "3600"
+    command: ["postgrest"]
+    healthcheck:
+      test: ["CMD", "postgrest", "--ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  storage:
+    image: supabase/storage-api:v1.89.12
+    depends_on:
+      db:
+        condition: service_healthy
+      rest:
+        condition: service_started
+    environment:
+      ANON_KEY: *anon_key
+      SERVICE_KEY: *service_key
+      POSTGREST_URL: http://rest:3000
+      AUTH_JWT_SECRET: *jwt_secret
+      DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD:-postgres-local-dev-password}@db:5432/postgres
+      STORAGE_PUBLIC_URL: ${SUPABASE_PUBLIC_URL:-http://localhost:54331}
+      REQUEST_ALLOW_X_FORWARDED_PATH: "true"
+      FILE_SIZE_LIMIT: "52428800"
+      STORAGE_BACKEND: file
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      GLOBAL_S3_BUCKET: stub
+      TENANT_ID: stub
+      REGION: stub
+      ENABLE_IMAGE_TRANSFORMATION: "false"
+      S3_PROTOCOL_ACCESS_KEY_ID: 625729a08b95bf1b7ff351a663f3a23c
+      S3_PROTOCOL_ACCESS_KEY_SECRET: 850181e4652dd023b7a98c58ae0d2d34bd487ee0cc3254aed6eda37307425907
+    volumes:
+      - storage-data:/var/lib/storage
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:5000/status"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  # Single entry point for the Supabase APIs: /auth/v1, /rest/v1, /storage/v1 on http://localhost:54331.
+  kong:
+    image: kong:3.9.4
+    depends_on:
+      auth:
+        condition: service_healthy
+      rest:
+        condition: service_healthy
+      storage:
+        condition: service_healthy
+    # Fills $SUPABASE_*_KEY in the template, then starts Kong with the result (written to /tmp: /home/kong is read-only).
+    entrypoint: bash -c 'eval "echo \"$$(cat /home/kong/temp.yml)\"" > /tmp/kong.yml && /docker-entrypoint.sh kong docker-start'
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /tmp/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_PLUGINS: cors,key-auth,acl
+      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
+      KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+      SUPABASE_ANON_KEY: *anon_key
+      SUPABASE_SERVICE_KEY: *service_key
+    volumes:
+      - ./docker/kong.yml:/home/kong/temp.yml:ro
+    ports:
+      - "${SUPABASE_PORT:-54331}:8000"
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+    restart: unless-stopped
+
+  # Catches the password-reset email. Open http://localhost:8025.
+  mailpit:
+    image: axllent/mailpit:v1.34
+    ports:
+      - "127.0.0.1:${MAILPIT_PORT:-8025}:8025"
+    restart: unless-stopped
+
+  # Applies backend/sql/*.sql (plus docker/db/000_base_schema.sql) once Auth and Storage have set up their schemas.
+  db-migrate:
+    image: supabase/postgres:17.6.1.136
+    depends_on:
+      db:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+      rest:
+        condition: service_healthy
+      storage:
+        condition: service_healthy
+    entrypoint: ["bash", "/migrations/docker/migrate.sh"]
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PASSWORD: *db_password
+    volumes:
+      - ./docker/db:/migrations/docker:ro
+      - ./backend/sql:/migrations/backend:ro
+    restart: "no"
+
+  # Optional demo data: docker compose run --rm seed
+  seed:
+    image: cs160-bank-api:local
+    build: ./backend
+    profiles: ["seed"]
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+      kong:
+        condition: service_healthy
+    entrypoint: ["python", "/seed.py"]
+    environment:
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_SERVICE_KEY: *service_key
+      SEED_PASSWORD: ${SEED_PASSWORD:-DemoPass2026!}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@example.com}
+      E2E_TEST_EMAIL: ${E2E_TEST_EMAIL:-e2e-user@example.com}
+      E2E_TEST_PASSWORD: ${E2E_TEST_PASSWORD:-DemoPass2026!}
+      E2E_RECIPIENT_EMAIL: ${E2E_RECIPIENT_EMAIL:-e2e-recipient@example.com}
+      E2E_RECIPIENT_PASSWORD: ${E2E_RECIPIENT_PASSWORD:-DemoPass2026!}
+    volumes:
+      - ./docker/seed.py:/seed.py:ro
+    restart: "no"
+
+volumes:
+  db-data:
+  db-config:
+  storage-data:

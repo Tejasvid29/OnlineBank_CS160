@@ -1,0 +1,5 @@
+# Files mounted into Linux containers must keep LF line endings, even when checked out on Windows.
+*.sh text eol=lf
+docker/** text eol=lf
+Dockerfile* text eol=lf
+backend/Dockerfile text eol=lf
